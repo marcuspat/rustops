@@ -1,0 +1,98 @@
+name: 'Helm Deploy'
+description: 'Composite action for deploying with Helm to Kubernetes'
+
+inputs:
+  environment:
+    description: 'Environment name (dev, staging, prod)'
+    required: true
+  kubeconfig:
+    description: 'Kubernetes kubeconfig'
+    required: true
+  chart-path:
+    description: 'Path to Helm chart'
+    required: false
+    default: './helm/rustops'
+  release-name:
+    description: 'Helm release name'
+    required: false
+    default: 'rustops'
+  namespace:
+    description: 'Kubernetes namespace'
+    required: false
+    default: ''
+  values-file:
+    description: 'Custom values file'
+    required: false
+    default: ''
+  version:
+    description: 'Image version to deploy'
+    required: true
+  timeout:
+    description: 'Deployment timeout'
+    required: false
+    default: '10m'
+  atomic:
+    description: 'Use atomic upgrade (rollback on failure)'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v4
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ inputs.kubeconfig }}
+
+    - name: Install Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: 'v3.14.0'
+
+    - name: Deploy with Helm
+      shell: bash
+      run: |
+        set -e
+
+        RELEASE_NAME="${{ inputs.release-name }}-${{ inputs.environment }}"
+        CHART_PATH="${{ inputs.chart-path }}"
+        NAMESPACE="${{ inputs.namespace }}"
+
+        if [ -z "$NAMESPACE" ]; then
+          NAMESPACE="rustops-${{ inputs.environment }}"
+        fi
+
+        HELM_ARGS=(
+          helm upgrade
+          --install
+          "$RELEASE_NAME"
+          "$CHART_PATH"
+          --namespace "$NAMESPACE"
+          --create-namespace
+          --set image.tag="${{ inputs.version }}"
+          --set environment="${{ inputs.environment }}"
+          --wait
+          --timeout "${{ inputs.timeout }}"
+        )
+
+        if [ "${{ inputs.atomic }}" = "true" ]; then
+          HELM_ARGS+=(--atomic)
+        fi
+
+        if [ -n "${{ inputs.values-file }}" ]; then
+          HELM_ARGS+=(--values "${{ inputs.values-file }}")
+        fi
+
+        "${HELM_ARGS[@]}"
+
+    - name: Verify deployment
+      shell: bash
+      run: |
+        NAMESPACE="${{ inputs.namespace }}"
+        if [ -z "$NAMESPACE" ]; then
+          NAMESPACE="rustops-${{ inputs.environment }}"
+        fi
+
+        kubectl rollout status deployment/rustops-api -n "$NAMESPACE" --timeout=5m
+        kubectl rollout status deployment/rustops-agent -n "$NAMESPACE" --timeout=5m

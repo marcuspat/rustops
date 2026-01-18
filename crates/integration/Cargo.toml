@@ -1,0 +1,41 @@
+[package]
+name = "rustops-integration"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+hyper = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+# Resilience
+backoff = { workspace = true }
+governor = { workspace = true }
+tokio-retry = { workspace = true }
+
+# Kubernetes
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
+
+# Authentication
+oauth2 = { workspace = true }
+
+# Common types
+rustops-common = { path = "../common" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockito = { workspace = true }
+wiremock = { workspace = true }

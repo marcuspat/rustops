@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # Kafka for event streaming
+  kafka:
+    image: bitnami/kafka:3.6
+    container_name: rustops-kafka-test
+    environment:
+      KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_CFG_LOG_RETENTION_HOURS: 1
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Zookeeper required by Kafka
+  zookeeper:
+    image: bitnami/zookeeper:3.8
+    container_name: rustops-zookeeper-test
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: yes
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ClickHouse for time-series storage
+  clickhouse:
+    image: clickhouse/clickhouse-server:23
+    container_name: rustops-clickhouse-test
+    ports:
+      - "8123:8123"  # HTTP
+      - "9000:9000"  # Native
+    environment:
+      CLICKHOUSE_DB: test
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: rustops-redis-test
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Prometheus for metrics scraping
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: rustops-prometheus-test
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./tests/fixtures/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=1h'
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for relational data
+  postgres:
+    image: postgres:16-alpine
+    container_name: rustops-postgres-test
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: rustops_test
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mock external services
+  mock-service:
+    image: mockserver/mockserver:latest
+    container_name: rustops-mock-test
+    ports:
+      - "1080:1080"
+    environment:
+      MOCKSERVER_LOG_LEVEL: WARN
+
+volumes:
+  clickhouse_data:

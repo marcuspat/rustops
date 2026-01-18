@@ -1,0 +1,73 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rustops.fullname" . }}-api
+  labels:
+    {{- include "rustops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.api.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.api.service.type }}
+  ports:
+  - port: {{ .Values.api.service.port }}
+    targetPort: {{ .Values.api.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "rustops.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+{{- end }}
+
+---
+{{- if .Values.agent.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rustops.fullname" . }}-agent
+  labels:
+    {{- include "rustops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+  {{- with .Values.agent.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.agent.service.type }}
+  ports:
+  - port: {{ .Values.agent.service.port }}
+    targetPort: {{ .Values.agent.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "rustops.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+{{- end }}
+
+---
+{{- if .Values.pipeline.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rustops.fullname" . }}-pipeline
+  labels:
+    {{- include "rustops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pipeline
+  {{- with .Values.pipeline.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.pipeline.service.type }}
+  ports:
+  - port: {{ .Values.pipeline.service.port }}
+    targetPort: {{ .Values.pipeline.service.targetPort }}
+    protocol: TCP
+    name: metrics
+  selector:
+    {{- include "rustops.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: pipeline
+{{- end }}

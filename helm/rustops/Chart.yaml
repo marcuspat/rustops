@@ -1,0 +1,26 @@
+apiVersion: v2
+name: rustops
+description: AIOps Platform for automated operations management
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - aiops
+  - operations
+  - monitoring
+  - automation
+home: https://github.com/rustops/rustops
+sources:
+  - https://github.com/rustops/rustops
+maintainers:
+  - name: RustOps Team
+    email: team@rustops.io
+icon: https://raw.githubusercontent.com/rustops/rustops/main/docs/logo.png
+annotations:
+  artifacthub.io/category: monitoring-logging
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://docs.rustops.io
+    - name: Support
+      url: https://github.com/rustops/rustops/issues

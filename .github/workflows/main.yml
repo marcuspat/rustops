@@ -3,31 +3,231 @@ name: Main Branch
 on:
   push:
     branches: [main, develop]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  HELM_VERSION: v3.14.0
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build Release
+  build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      image_tag: ${{ steps.meta.outputs.tags }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build release
         run: cargo build --workspace --release
 
-      - name: Run tests
-        run: cargo test --workspace
+      - name: Run full test suite
+        run: cargo test --workspace --verbose
 
       - name: Check documentation
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps --all-features
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "rustops") | .version' || echo "0.1.0")
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tags=${REGISTRY}/${IMAGE_NAME}:${VERSION}-${SHORT_SHA},${REGISTRY}/${IMAGE_NAME}:latest" >> $GITHUB_OUTPUT
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: |
+            target/release/rustops*
+            !target/release/*.d
+            !target/release/*.rlib
+          retention-days: 7
+
+  docker-build:
+    name: Build Docker Images
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        component: [api, agent, pipeline]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.${{ matrix.component }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            COMPONENT=${{ matrix.component }}
+            VERSION=${{ needs.build-and-test.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+
+  security-scan:
+    name: Security Scanning
+    needs: docker-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        component: [api, agent, pipeline]
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component }}:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  deploy-dev:
+    name: Deploy to Dev Environment
+    needs: [build-and-test, docker-build, security-scan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/develop'
+    environment:
+      name: dev
+      url: https://dev.rustops.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install rustops-dev ./helm/rustops \
+            --namespace rustops-dev \
+            --create-namespace \
+            --values helm/rustops/values-dev.yaml \
+            --set image.tag=latest \
+            --set environment=dev \
+            --wait \
+            --timeout 5m \
+            --debug
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/rustops-api -n rustops-dev
+          kubectl rollout status deployment/rustops-agent -n rustops-dev
+          kubectl get pods -n rustops-dev
+
+  smoke-tests:
+    name: Smoke Tests
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/develop'
+    environment:
+      name: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
+
+      - name: Run smoke tests
+        run: |
+          chmod +x ./scripts/smoke-tests.sh
+          ./scripts/smoke-tests.sh dev
+
+      - name: Run health checks
+        run: |
+          # API Health Check
+          kubectl run curl-test --image=curlimages/curl:latest --rm -i --restart=Never -- \
+            curl -f http://rustops-api.rustops-dev.svc.cluster.local:8080/health || exit 1
+
+          # Agent Health Check
+          kubectl run curl-test --image=curlimages/curl:latest --rm -i --restart=Never -- \
+            curl -f http://rustops-agent.rustops-dev.svc.cluster.local:8081/health || exit 1
+
+      - name: Check logs for errors
+        run: |
+          kubectl logs -n rustops-dev -l app=rustops-api --tail=100 | grep -i error && exit 1 || true
+          kubectl logs -n rustops-dev -l app=rustops-agent --tail=100 | grep -i error && exit 1 || true
+
+  notify:
+    name: Notify Results
+    needs: [build-and-test, docker-build, deploy-dev, smoke-tests]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Send notification
+        run: |
+          if [ "${{ needs.deploy-dev.result }}" == "success" ]; then
+            echo "Deployment to dev successful"
+          else
+            echo "Deployment to dev failed"
+            exit 1
+          fi

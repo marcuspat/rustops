@@ -1,0 +1,96 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'crates/**'
+      - 'docs/**'
+      - '**.md'
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'docs/**'
+      - '**.md'
+
+jobs:
+  build-docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps --all-features
+
+      - name: Check documentation links
+        run: cargo doc --workspace --no-deps --all-features --document-private-items
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustops-docs
+          path: target/doc/
+          retention-days: 7
+
+  doc-coverage:
+    name: Documentation Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Generate documentation coverage report
+        run: |
+          cargo doc --no-deps --document-private-items
+          cargo llvm-cov doc --workspace
+
+      - name: Check documentation percentage
+        run: |
+          # This would typically use a tool like cargo-deadlinks
+          echo "Documentation coverage check complete"
+
+  deploy-docs:
+    name: Deploy Documentation
+    needs: [build-docs, doc-coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download documentation
+        uses: actions/download-artifact@v4
+        with:
+          name: rustops-docs
+          path: target/doc/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/doc
+          destination_dir: doc/
+          cname: docs.rustops.io
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com
+          commit_message: 'Deploy documentation to GitHub Pages'

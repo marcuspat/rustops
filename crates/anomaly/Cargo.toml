@@ -1,0 +1,31 @@
+[package]
+name = "rustops-anomaly"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Anomaly detection for RustOps"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+
+# Statistics
+ndarray = { workspace = true }
+ndarray-stats = { workspace = true }
+
+# Local
+rustops-common = { path = "../common" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+proptest = { workspace = true }
+criterion = { workspace = true }

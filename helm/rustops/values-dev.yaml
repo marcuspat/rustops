@@ -1,0 +1,46 @@
+# Development environment values
+
+global:
+  environment: dev
+  imagePullPolicy: Always
+
+api:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  autoscaling:
+    enabled: false
+  ingress:
+    enabled: false
+
+agent:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 250m
+      memory: 128Mi
+    requests:
+      cpu: 25m
+      memory: 32Mi
+  autoscaling:
+    enabled: false
+
+pipeline:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true

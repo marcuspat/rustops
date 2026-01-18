@@ -4,15 +4,32 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+      skip_staging:
+        description: 'Skip staging deployment'
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  HELM_VERSION: v3.14.0
 
 permissions:
   contents: write
   packages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -21,56 +38,360 @@ jobs:
     timeout-minutes: 10
     outputs:
       version: ${{ steps.parse.outputs.version }}
+      is_semver: ${{ steps.parse.outputs.is_semver }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Parse version
         id: parse
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Validate semver
+          if [[ $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_semver=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_semver=false" >> $GITHUB_OUTPUT
+            echo "::warning::Version $VERSION is not valid semver"
+          fi
+
+      - name: Check changelog
+        run: |
+          VERSION="${{ steps.parse.outputs.version }}"
+          if ! grep -q "^${VERSION}" CHANGELOG.md 2>/dev/null; then
+            echo "::warning::No changelog entry found for $VERSION"
+          fi
 
   build-release:
     name: Build Release Binaries
     needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: rustops
+            asset_name: rustops-linux-amd64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: rustops
+            asset_name: rustops-linux-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: rustops
+            asset_name: rustops-darwin-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: rustops
+            asset_name: rustops-darwin-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: rustops.exe
+            asset_name: rustops-windows-amd64.exe
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          key: ${{ matrix.target }}
 
       - name: Build release
-        run: cargo build --workspace --release
+        run: cargo build --workspace --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+      - name: Create archive
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            7z a ../../../${{ matrix.asset_name }}.zip ${{ matrix.artifact_name }}
+          else
+            tar czf ../../../${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
+          fi
+          cd -
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: binaries
-          path: target/release/rustops-*
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}.tar.gz
+            ${{ matrix.asset_name }}.zip
+          retention-days: 30
 
-  create-release:
-    name: Create GitHub Release
-    needs: [validate, build-release]
+  docker-release:
+    name: Build and Push Release Docker Images
+    needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        component: [api, agent, pipeline]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Create release
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.validate.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+            type=raw,value=stable
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.${{ matrix.component }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            COMPONENT=${{ matrix.component }}
+            VERSION=${{ needs.validate.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+          provenance: true
+          sbom: true
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [validate, build-release, docker-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: ${{ !inputs.skip_staging }}
+    environment:
+      name: staging
+      url: https://staging.rustops.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Deploy to staging
+        run: |
+          helm upgrade --install rustops-staging ./helm/rustops \
+            --namespace rustops-staging \
+            --create-namespace \
+            --values helm/rustops/values-staging.yaml \
+            --set image.tag=${{ needs.validate.outputs.version }} \
+            --set environment=staging \
+            --wait \
+            --timeout 10m \
+            --atomic
+
+      - name: Run smoke tests
+        run: |
+          chmod +x ./scripts/smoke-tests.sh
+          ./scripts/smoke-tests.sh staging
+
+  rollout-production:
+    name: Rollout to Production
+    needs: [validate, deploy-staging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: production
+      url: https://rustops.io
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [25, 50, 100]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_PROD }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Deploy ${{ matrix.stage }}% to production
+        run: |
+          helm upgrade --install rustops-prod ./helm/rustops \
+            --namespace rustops-prod \
+            --values helm/rustops/values-prod.yaml \
+            --set image.tag=${{ needs.validate.outputs.version }} \
+            --set environment=production \
+            --set replicaCount=${{ matrix.stage == 100 && '3' || matrix.stage == 50 && '2' || '1' }} \
+            --set trafficSplit.percentage=${{ matrix.stage }} \
+            --wait \
+            --timeout 15m
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/rustops-api -n rustops-prod --timeout=10m
+          kubectl rollout status deployment/rustops-agent -n rustops-prod --timeout=10m
+
+      - name: Health check
+        run: |
+          kubectl run curl-test --image=curlimages/curl:latest --rm -i --restart=Never -- \
+            curl -f https://rustops.io/health || exit 1
+
+      - name: Monitor for errors (5 min)
+        run: |
+          chmod +x ./scripts/monitor-deployment.sh
+          ./scripts/monitor-deployment.sh production 300
+
+      - name: Run integration tests
+        if: matrix.stage == 100
+        run: |
+          chmod +x ./scripts/integration-tests.sh
+          ./scripts/integration-tests.sh production
+
+      - name: Pause before next stage
+        if: matrix.stage != 100
+        run: |
+          echo "Waiting 5 minutes before next rollout stage..."
+          sleep 300
+
+  rollback-on-failure:
+    name: Automated Rollback
+    needs: rollout-production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: failure()
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_PROD }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Rollback deployment
+        run: |
+          helm rollback rustops-prod -n rustops-prod || true
+          kubectl rollout undo deployment/rustops-api -n rustops-prod || true
+          kubectl rollout undo deployment/rustops-agent -n rustops-prod || true
+
+      - name: Verify rollback
+        run: |
+          kubectl rollout status deployment/rustops-api -n rustops-prod --timeout=5m
+          kubectl rollout status deployment/rustops-agent -n rustops-prod --timeout=5m
+
+      - name: Notify rollback
+        run: |
+          echo "Production deployment was automatically rolled back"
+          echo "Version: ${{ needs.validate.outputs.version }}"
+          echo "Time: $(date -u)"
+
+  create-release:
+    name: Create GitHub Release
+    needs: [validate, build-release, docker-release, rollout-production]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: success()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Create release notes
+        id: release_notes
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          echo "# Release ${VERSION}" > release-notes.md
+          echo "" >> release-notes.md
+          echo "## Changes" >> release-notes.md
+          git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release-notes.md || true
+          echo "" >> release-notes.md
+          echo "## Installation" >> release-notes.md
+          echo '```bash' >> release-notes.md
+          echo "docker pull ${REGISTRY}/${IMAGE_NAME}:${VERSION}" >> release-notes.md
+          echo '```' >> release-notes.md
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ needs.validate.outputs.version }}
+          name: Release ${{ needs.validate.outputs.version }}
+          body_path: release-notes.md
           draft: false
-          prerelease: false
-          files: |
-            binaries/rustops-*
+          prerelease: ${{ needs.validate.outputs.is_semver != 'true' }}
+          files: ./artifacts/*/*
           generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  post-release:
+    name: Post Release Tasks
+    needs: [validate, create-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: success()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create next development version
+        run: |
+          echo "Preparing for next development iteration"
+          # This would typically bump the version in Cargo.toml
+          # and commit the changes
+
+      - name: Update documentation
+        run: |
+          echo "Updating documentation with new version info"
+
+      - name: Notify team
+        run: |
+          echo "Release ${{ needs.validate.outputs.version }} completed successfully!"

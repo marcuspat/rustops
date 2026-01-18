@@ -1,0 +1,13 @@
+{{- if .Values.configMap.create }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rustops.fullname" . }}
+  labels:
+    {{- include "rustops.labels" . | nindent 4 }}
+data:
+  {{- with .Values.configMap.data }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+  environment: {{ .Values.global.environment }}
+{{- end }}

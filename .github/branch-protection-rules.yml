@@ -1,0 +1,80 @@
+# GitHub Branch Protection Rules for RustOps
+# These rules should be configured via GitHub UI or API
+# This file serves as documentation
+
+branch-protection:
+  main:
+    # Require pull request reviews before merging
+    require_pull_request_reviews:
+      required_approving_review_count: 2
+      dismiss_stale_reviews: true
+      require_code_owner_review: true
+      # Only allow specific users to dismiss reviews
+      restrict_dismissals: true
+      dismissal_users: ["@rustops/maintainers"]
+
+    # Require status checks to pass before merging
+    require_status_checks:
+      strict: true  # Require branches to be up to date
+      contexts:
+        # CI checks
+        - "Format Check"
+        - "Clippy (Strict Mode)"
+        - "Unit Tests"
+        - "Code Coverage"
+        - "Security Scan"
+        - "Dependency Review"
+        - "Documentation Check"
+
+    # Restrict who can push to this branch
+    enforce_admins: true
+
+    # Allow force pushes for authorized users
+    allow_force_pushes: false
+    allow_deletions: false
+
+    # Require linear history
+    required_linear_history: true
+
+  develop:
+    # Require pull request reviews before merging
+    require_pull_request_reviews:
+      required_approving_review_count: 1
+      dismiss_stale_reviews: true
+      require_code_owner_review: true
+
+    # Require status checks to pass before merging
+    require_status_checks:
+      strict: true
+      contexts:
+        - "Format Check"
+        - "Clippy (Strict Mode)"
+        - "Unit Tests"
+        - "Security Scan"
+
+    # Restrict who can push
+    enforce_admins: false
+
+    # Settings
+    allow_force_pushes: false
+    allow_deletions: false
+    required_linear_history: true
+
+  feature/*:
+    # Less strict for feature branches
+    require_pull_request_reviews:
+      required_approving_review_count: 1
+      dismiss_stale_reviews: false
+      require_code_owner_review: false
+
+    # Basic CI required
+    require_status_checks:
+      strict: false
+      contexts:
+        - "Format Check"
+        - "Clippy (Strict Mode)"
+        - "Unit Tests"
+
+    enforce_admins: false
+    allow_force_pushes: true
+    allow_deletions: true
