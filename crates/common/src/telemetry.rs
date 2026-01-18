@@ -167,7 +167,7 @@ pub struct SpanEvent {
 }
 
 /// Span status
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SpanStatus {
     /// OK
