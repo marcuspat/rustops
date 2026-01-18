@@ -1,0 +1,51 @@
+[package]
+name = "rustops-topology"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Service topology discovery with graph database"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# Local dependencies
+rustops-common = { path = "../common" }
+
+# Graph database
+neo4rs = "0.7"
+
+# Kubernetes
+kube = { version = "0.97", features = ["client", "runtime", "openssl"], optional = true }
+k8s-openapi = { version = "0.23", features = ["v1_29"], optional = true }
+
+# HTTP client
+reqwest = { workspace = true }
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Validation
+garde = { version = "0.20", features = ["derive"], optional = true }
+
+[dev-dependencies]
+mockall = "0.13"
+proptest = { workspace = true }
+criterion = { workspace = true }
+wiremock = "0.6"
+
+[features]
+default = ["kubernetes", "validation"]
+kubernetes = ["kube", "k8s-openapi"]
+validation = ["garde"]
+full = ["kubernetes", "validation"]

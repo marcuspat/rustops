@@ -1,0 +1,50 @@
+{
+  "metrics": [
+    {
+      "name": "cpu_usage_percent",
+      "value": 75.5,
+      "labels": {
+        "host": "server1",
+        "datacenter": "us-west",
+        "region": "us-west-2"
+      },
+      "timestamp": 1705536000
+    },
+    {
+      "name": "memory_usage_bytes",
+      "value": 8589934592,
+      "labels": {
+        "host": "server1",
+        "datacenter": "us-west"
+      },
+      "timestamp": 1705536000
+    },
+    {
+      "name": "disk_io_percent",
+      "value": 45.2,
+      "labels": {
+        "host": "server1",
+        "device": "/dev/sda1"
+      },
+      "timestamp": 1705536000
+    },
+    {
+      "name": "network_in_bytes",
+      "value": 104857600,
+      "labels": {
+        "host": "server1",
+        "interface": "eth0"
+      },
+      "timestamp": 1705536000
+    },
+    {
+      "name": "network_out_bytes",
+      "value": 52428800,
+      "labels": {
+        "host": "server1",
+        "interface": "eth0"
+      },
+      "timestamp": 1705536000
+    }
+  ]
+}

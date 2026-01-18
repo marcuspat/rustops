@@ -1,0 +1,64 @@
+# Code Owners File for RustOps
+# Format: <file pattern> <github username/...>
+
+# Core maintainers - approval required for all changes
+* @rustops/maintainers
+
+# CI/CD Pipeline
+.github/workflows/** @rustops/devops
+.github/composite-actions/** @rustops/devops
+
+# Helm Charts
+helm/** @rustops/devops
+
+# Dockerfiles
+docker/** @rustops/devops
+
+# Deployment Scripts
+scripts/** @rustops/devops
+
+# Core API
+crates/api/** @rustops/api-team
+src/api/** @rustops/api-team
+
+# Agent System
+crates/agent/** @rustops/agent-team
+src/agent/** @rustops/agent-team
+
+# Pipeline/Orchestration
+crates/pipeline/** @rustops/pipeline-team
+
+# Anomaly Detection
+crates/anomaly/** @rustops/ml-team
+
+# Correlation Engine
+crates/correlation/** @rustops/ml-team
+
+# Remediation
+crates/remediation/** @rustops/automation-team
+
+# Topology Service
+crates/topology/** @rustops/infra-team
+
+# Common Libraries
+crates/common/** @rustops/core-team
+
+# Documentation
+docs/** @rustops/docs-team
+*.md @rustops/docs-team
+
+# Configuration
+config/** @rustops/core-team
+
+# Tests
+tests/** @rustops/qa-team
+**/*_test.rs @rustops/qa-team
+
+# Security
+**/security/** @rustops/security-team
+**/auth/** @rustops/security-team
+**/permissions/** @rustops/security-team
+
+# Performance
+**/benchmark/** @rustops/performance-team
+benches/** @rustops/performance-team

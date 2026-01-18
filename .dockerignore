@@ -1,0 +1,58 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation
+*.md
+!README.md
+docs/
+books/
+
+# Development
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Rust target
+target/
+**/target/
+Cargo.lock
+
+# Tests
+tests/
+benches/
+*.test.rs
+
+# Dependencies
+.DS_Store
+*/vendor/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Misc
+*.log
+.env
+.env.*
+*.pid
+*.seed
+*.pid.lock
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

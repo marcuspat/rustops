@@ -1,0 +1,73 @@
+name: 'Docker Build and Push'
+description: 'Composite action for building and pushing Docker images with Buildx'
+
+inputs:
+  component:
+    description: 'Component name (api, agent, pipeline)'
+    required: true
+  registry:
+    description: 'Container registry'
+    required: true
+  image-name:
+    description: 'Image name'
+    required: true
+  version:
+    description: 'Image version/tag'
+    required: true
+  platforms:
+    description: 'Target platforms'
+    required: false
+    default: 'linux/amd64,linux/arm64'
+  push:
+    description: 'Push image to registry'
+    required: false
+    default: 'true'
+  sbom:
+    description: 'Generate SBOM'
+    required: false
+    default: 'true'
+  provenance:
+    description: 'Generate provenance'
+    required: false
+    default: 'true'
+
+outputs:
+  image-digest:
+    description: 'Digest of the built image'
+    value: ${{ steps.build.outputs.digest }}
+  image-ref:
+    description: 'Full reference to the built image'
+    value: ${{ steps.meta.outputs.tags }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ inputs.registry }}/${{ inputs.image-name }}/${{ inputs.component }}
+        tags: |
+          type=raw,value=${{ inputs.version }}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/Dockerfile.${{ inputs.component }}
+        push: ${{ inputs.push }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          COMPONENT=${{ inputs.component }}
+          VERSION=${{ inputs.version }}
+        platforms: ${{ inputs.platforms }}
+        provenance: ${{ inputs.provenance }}
+        sbom: ${{ inputs.sbom }}

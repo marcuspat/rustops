@@ -1,0 +1,37 @@
+name: 'Rust Build Setup'
+description: 'Composite action for setting up Rust build environment with caching'
+
+inputs:
+  rust-version:
+    description: 'Rust toolchain version'
+    required: false
+    default: 'stable'
+  components:
+    description: 'Additional Rust components to install'
+    required: false
+    default: 'clippy, rustfmt'
+  cache-on-failure:
+    description: 'Cache dependencies even on failure'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: ${{ inputs.components }}
+        toolchain: ${{ inputs.rust-version }}
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: ${{ inputs.cache-on-failure }}
+        cache-all-crates: true
+
+    - name: Set Rust environment
+      shell: bash
+      run: |
+        echo "CARGO_TERM_COLOR=always" >> $GITHUB_ENV
+        echo "RUST_BACKTRACE=1" >> $GITHUB_ENV

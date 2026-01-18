@@ -1,0 +1,56 @@
+{
+  "events": [
+    {
+      "event_id": "550e8400-e29b-41d4-a716-446655440000",
+      "event_type": "anomaly_detected",
+      "timestamp": "2024-01-18T10:00:00Z",
+      "causation_id": null,
+      "correlation_id": "660e8400-e29b-41d4-a716-446655440000",
+      "version": 1,
+      "payload": {
+        "AnomalyDetected": {
+          "anomaly_id": "anm_770e8400e29b41d4a716446655440000",
+          "metric_id": "mtr_880e8400e29b41d4a716446655440000",
+          "score": 0.95,
+          "confidence": 0.9,
+          "explanation": "CPU usage exceeded 3 standard deviations from baseline"
+        }
+      }
+    },
+    {
+      "event_id": "550e8400-e29b-41d4-a716-446655440001",
+      "event_type": "alert_created",
+      "timestamp": "2024-01-18T10:00:01Z",
+      "causation_id": "550e8400-e29b-41d4-a716-446655440000",
+      "correlation_id": "660e8400-e29b-41d4-a716-446655440000",
+      "version": 1,
+      "payload": {
+        "AlertCreated": {
+          "alert_id": "alt_990e8400e29b41d4a716446655440000",
+          "title": "High CPU usage detected on server1",
+          "severity": "MAJOR",
+          "service_id": "svc_aae8400e29b41d4a716446655440000"
+        }
+      }
+    },
+    {
+      "event_id": "550e8400-e29b-41d4-a716-446655440002",
+      "event_type": "incident_created",
+      "timestamp": "2024-01-18T10:05:00Z",
+      "causation_id": "550e8400-e29b-41d4-a716-446655440001",
+      "correlation_id": "660e8400-e29b-41d4-a716-446655440000",
+      "version": 1,
+      "payload": {
+        "IncidentCreated": {
+          "incident_id": "inc_bbe8400e29b41d4a716446655440000",
+          "title": "Service degradation in us-west region",
+          "severity": "MAJOR",
+          "alert_ids": [
+            "alt_990e8400e29b41d4a716446655440000",
+            "alt_cce8400e29b41d4a716446655440000"
+          ]
+        }
+      }
+    }
+  ]
+}

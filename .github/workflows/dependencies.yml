@@ -1,0 +1,59 @@
+name: Dependency Updates
+
+on:
+  schedule:
+    # Run weekly on Mondays at 1 AM UTC
+    - cron: '0 1 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.repository == 'rustops/rustops'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v2
+
+      - name: Install cargo-edit
+        run: |
+          cargo binstall -y cargo-edit
+
+      - name: Update dependencies
+        run: |
+          cargo update
+          cargo upgrade --workspace
+
+      - name: Check build
+        run: |
+          cargo check --workspace --all-targets
+          cargo test --workspace --no-run
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "chore: Update dependencies"
+          body: |
+            Automated dependency update
+
+            This PR updates all workspace dependencies to their latest compatible versions.
+          commit-message: "chore: update dependencies"
+          branch: dependencies/update
+          labels: |
+            dependencies
+            automated
+          reviewers: rustops/maintainers
+          draft: false

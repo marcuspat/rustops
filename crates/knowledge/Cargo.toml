@@ -1,0 +1,31 @@
+[package]
+name = "rustops-knowledge"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Knowledge management with vector embeddings for RustOps"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+
+# Vector embeddings
+hnsw-rs = { workspace = true }
+ndarray = { workspace = true }
+
+# AI/ML
+# ort = { workspace = true }  # TODO: Add when ONNX Runtime is available
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+proptest = { workspace = true }
+criterion = { workspace = true }
+tempfile = "3"
