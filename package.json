@@ -1,0 +1,30 @@
+{
+  "name": "rustops",
+  "version": "1.0.0",
+  "description": "AIOps Agent for IT Operations",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcuspat/rustops.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/marcuspat/rustops/issues"
+  },
+  "homepage": "https://github.com/marcuspat/rustops#readme",
+  "dependencies": {
+    "@heroui/react": "^2.8.7",
+    "framer-motion": "^12.27.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.23",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18"
+  }
+}
