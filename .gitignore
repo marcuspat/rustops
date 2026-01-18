@@ -1,6 +1,7 @@
 # RuVector intelligence data
 .ruvector/
 .claude/statusline.sh
+.swarm/
 
 # Ignore all dotfiles and directories (with exceptions)
 .*
