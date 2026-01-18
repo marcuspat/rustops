@@ -1,5 +1,50 @@
-
-
 # RuVector intelligence data
 .ruvector/
 .claude/statusline.sh
+
+# Ignore all dotfiles and directories (with exceptions)
+.*
+# Exceptions - keep these dotfiles
+!/.gitignore
+!/Cargo.toml
+!/Cargo.lock
+!/docker-compose.yml
+!/Dockerfile
+
+# Development directories
+devpods/
+node_modules/
+
+# Claude Flow configuration (optional - user preference)
+CLAUDE.md
+
+# Build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local data and logs
+data/
+logs/
+*.log
+
+# Test and benchmark outputs
+*.profraw
+*.profdata
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Temporary files
+tmp/
+temp/
+*.tmp

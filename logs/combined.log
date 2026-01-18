@@ -1,6 +1,0 @@
-{"error":"Cannot find module '@ruvector/ruvllm'\nRequire stack:\n- /workspaces/rustops/package.json","level":"warn","message":"RuvLLM not available, using fallback mode","service":"agentic-qe-fleet","timestamp":"2026-01-18T18:19:38.078Z"}
-{"autoConsolidate":true,"consolidationInterval":100,"enabled":true,"level":"info","message":"SONA Lifecycle Manager initialized","ruvLLMAvailable":false,"service":"agentic-qe-fleet","timestamp":"2026-01-18T18:19:38.083Z"}
-{"level":"info","message":"SONA lifecycle integration enabled","service":"agentic-qe-fleet","timestamp":"2026-01-18T18:19:38.084Z"}
-{"level":"info","message":"[GOAPTaskOrchestration] Initializing...","service":"agentic-qe-fleet","timestamp":"2026-01-18T18:19:38.091Z"}
-{"actionsRegistered":17,"level":"info","message":"[GOAPTaskOrchestration] Initialized","service":"agentic-qe-fleet","timestamp":"2026-01-18T18:19:38.120Z"}
-{"level":"info","message":"AgentRegistry memory store initialized successfully","service":"agentic-qe-fleet","timestamp":"2026-01-18T18:19:38.361Z"}
