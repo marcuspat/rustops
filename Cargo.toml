@@ -1,0 +1,55 @@
+[workspace]
+members = [
+    "crates/agent",
+    "crates/pipeline",
+    "crates/anomaly",
+    "crates/correlation",
+    "crates/remediation",
+    "crates/topology",
+    "crates/api",
+    "crates/common",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["RustOps Team"]
+license = "Apache-2.0"
+repository = "https://github.com/rustops/rustops"
+
+[workspace.dependencies]
+# Async Runtime
+tokio = { version = "1.43", features = ["full"] }
+async-trait = "0.1.86"
+
+# Telemetry
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Networking
+axum = "0.7"
+tower = "0.5"
+reqwest = { version = "0.12", features = ["json"] }
+
+# ML
+ort = "2.0"
+
+# Testing
+proptest = "1.0"
+criterion = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

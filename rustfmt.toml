@@ -1,0 +1,34 @@
+# Rustfmt configuration
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+indent_style = "Block"
+fn_single_line = false
+where_single_line = false
+
+imports_indent = "Block"
+imports_layout = "Mixed"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+reorder_modules = true
+
+comment_width = 100
+wrap_comments = true
+normalize_comments = true
+normalize_doc_attributes = true
+
+format_code_in_doc_comments = true
+format_strings = true
+format_macro_matchers = true
+format_macro_bodies = true
+
+use_field_init_shorthand = true
+use_try_shorthand = true
+use_small_heuristics = "Default"
+merge_derives = true
+overflow_delimited_expr = true
+
+blank_lines_upper_bound = 1
+blank_lines_lower_bound = 0
+remove_nested_parens = true

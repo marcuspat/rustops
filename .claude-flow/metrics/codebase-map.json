@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-01-18T18:34:53.771Z",
+  "projectRoot": "/workspaces/rustops",
+  "structure": {
+    "hasPackageJson": true,
+    "hasTsConfig": true,
+    "hasClaudeConfig": true,
+    "hasClaudeFlow": true
+  },
+  "scannedAt": 1768761293771
+}
