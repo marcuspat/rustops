@@ -2,7 +2,7 @@
 //
 // This test verifies the Kubernetes adapter implementation works correctly
 
-use rustops_integration::adapter::IntegrationKind;
+use rustops_integration::adapter::{IntegrationAdapter, IntegrationKind};
 use rustops_integration::infrastructure::kubernetes::{KubernetesAdapter, KubernetesConfig};
 use std::time::Duration;
 
@@ -31,7 +31,7 @@ async fn test_kubernetes_adapter_config() {
 }
 
 #[tokio::test]
-fn test_namespace_inference() {
+async fn test_namespace_inference() {
     // Test without env var
     let ns1 = KubernetesAdapter::infer_namespace();
     assert!(ns1.is_none());
@@ -43,8 +43,8 @@ fn test_namespace_inference() {
     std::env::remove_var("NAMESPACE");
 }
 
-#[test]
-fn test_kubernetes_config_defaults() {
+#[tokio::test]
+async fn test_kubernetes_config_defaults() {
     let config = KubernetesConfig::default();
     assert_eq!(config.resync_interval, Duration::from_secs(60));
     assert_eq!(config.max_watch_streams, 100);

@@ -43,9 +43,10 @@ async fn test_topology_service_end_to_end() {
     service.graph_mut().add_service(service_b).unwrap();
 
     // Add dependency
+    let services = service.graph().get_all_services();
     let dependency = DependencyEdge::new(
-        service.graph().get_services().next().unwrap().id,
-        service.graph().get_services().nth(1).unwrap().id,
+        services[0].id,
+        services[1].id,
         DependencyType::Calls,
     );
 
@@ -60,7 +61,8 @@ async fn test_topology_service_end_to_end() {
     assert_eq!(stats.dependency_count, 1);
 
     // Test impact analysis
-    let service_id = service.graph().get_services().next().unwrap().id;
+    let services = service.graph().get_all_services();
+    let service_id = services[0].id;
     let impact = service.analyze_impact(&service_id).await.unwrap();
     assert_eq!(impact.source_service, service_id);
     assert!(!impact.recommendations.is_empty());
@@ -97,20 +99,24 @@ async fn test_service_graph_operations() {
         ServiceType::StatefulSet,
     );
 
+    let id1 = service1.id;
+    let id2 = service2.id;
+    let id3 = service3.id;
+
     graph.add_service(service1).unwrap();
     graph.add_service(service2).unwrap();
     graph.add_service(service3).unwrap();
 
     // Add dependencies: frontend -> api -> database
     let dep1 = DependencyEdge::new(
-        graph.get_services().next().unwrap().id,
-        graph.get_services().nth(1).unwrap().id,
+        id1,
+        id2,
         DependencyType::Calls,
     );
 
     let dep2 = DependencyEdge::new(
-        graph.get_services().nth(1).unwrap().id,
-        graph.get_services().nth(2).unwrap().id,
+        id2,
+        id3,
         DependencyType::Reads,
     );
 
@@ -123,18 +129,18 @@ async fn test_service_graph_operations() {
 
     // Test dependency discovery
     let downstream = graph
-        .find_downstream_dependencies(&graph.get_services().next().unwrap().id)
+        .find_downstream_dependencies(&id1)
         .unwrap();
     assert_eq!(downstream.len(), 2);
 
     let upstream = graph
-        .find_upstream_dependencies(&graph.get_services().nth(2).unwrap().id)
+        .find_upstream_dependencies(&id3)
         .unwrap();
     assert_eq!(upstream.len(), 2);
 
     // Test blast radius
     let blast_radius = graph
-        .calculate_blast_radius(&graph.get_services().nth(2).unwrap().id, 5)
+        .calculate_blast_radius(&id3, 5)
         .unwrap();
     assert!(blast_radius.total_affected_services >= 2);
 
@@ -143,6 +149,8 @@ async fn test_service_graph_operations() {
 
 #[tokio::test]
 async fn test_event_system() {
+    use rustops_topology::events::TopologyEventStore;
+
     let event_store = InMemoryEventStore::new();
     let mut emitter = rustops_topology::events::EventEmitter::new(Box::new(event_store.clone()));
 
@@ -165,7 +173,7 @@ async fn test_event_system() {
     let service_events = event_store.get_service_events(&service_id).unwrap();
     assert_eq!(service_events.len(), 2);
 
-    let stats = event_store.get_statistics().unwrap();
+    let stats = emitter.get_statistics().unwrap();
     assert_eq!(stats.total_events, 2);
     assert_eq!(stats.service_events, 1);
     assert_eq!(stats.dependency_events, 1);
@@ -206,7 +214,7 @@ impl MockDiscovery {
 
 #[async_trait::async_trait]
 impl rustops_topology::discovery::Discovery for MockDiscovery {
-    async fn discover_services(&self) -> Result<Vec<ServiceNode>> {
+    async fn discover_services(&self) -> rustops_common::Result<Vec<ServiceNode>> {
         Ok(vec![ServiceNode::new(
             ServiceId::new(),
             Some("mock-service".to_string()),
@@ -216,7 +224,7 @@ impl rustops_topology::discovery::Discovery for MockDiscovery {
         )])
     }
 
-    async fn discover_dependencies(&self) -> Result<Vec<DependencyEdge>> {
+    async fn discover_dependencies(&self) -> rustops_common::Result<Vec<DependencyEdge>> {
         Ok(vec![])
     }
 
@@ -247,7 +255,7 @@ async fn test_impact_analysis() {
 
 #[tokio::test]
 async fn test_error_handling() {
-    use rustops_topology::error::{Error, Result};
+    use rustops_topology::error::{Error, ErrorContext, Result};
 
     // Test error creation and context
     let result: Result<()> = Err(Error::graph("Test error"));
@@ -297,7 +305,6 @@ async fn test_service_builder() {
     let to_id = ServiceId::new();
     let dependency = DependencyEdge::builder(from_id, to_id)
         .with_type(DependencyType::Writes)
-        .unwrap()
         .build();
 
     assert_eq!(dependency.edge_type, DependencyType::Writes);

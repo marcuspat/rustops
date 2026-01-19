@@ -1,0 +1,21 @@
+[package]
+name = "rustops-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Telemetry collection agent for RustOps"
+
+[[bin]]
+name = "rustops-agent"
+path = "src/main.rs"
+
+[dependencies]
+rustops-common = { path = "../common" }
+rustops-telemetry = { path = "../telemetry" }
+rustops-integration = { path = "../integration" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }

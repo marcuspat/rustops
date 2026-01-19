@@ -1,0 +1,13 @@
+# Grafana datasource provisioning for Jaeger
+
+apiVersion: 1
+
+datasources:
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: true
+    jsonData:
+      tracesToLogs:
+        datasourceUid: 'loki'  # Optional: if using Loki for logs

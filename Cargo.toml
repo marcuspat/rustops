@@ -6,7 +6,13 @@ members = [
     "crates/incident",
     "crates/integration",
     "crates/topology",
+    "crates/api",
+    "crates/agent",
+    "crates/pipeline",
 ]
+
+[default-bin]
+name = "rustops-api"
 resolver = "2"
 
 [workspace.package]

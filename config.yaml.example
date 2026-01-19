@@ -1,0 +1,563 @@
+# =============================================================================
+# RustOps Configuration Example
+# =============================================================================
+# This is a complete production-ready configuration file for RustOps.
+# Copy this file to config.yaml and customize for your environment.
+#
+# Configuration Loading Order:
+# 1. Environment variables (RUSTOPS_* prefix)
+# 2. This configuration file
+# 3. Built-in defaults
+#
+# Usage:
+#   cp config.yaml.example config.yaml
+#   # Edit config.yaml with your settings
+#   rustops-api --config /path/to/config.yaml
+# =============================================================================
+
+# =============================================================================
+# Agent Configuration
+# =============================================================================
+# The agent service collects telemetry data from various sources.
+agent:
+  # How often (in seconds) the agent collects metrics from services
+  # Default: 15 seconds
+  # Recommended: 10-60 seconds depending on your monitoring needs
+  collection_interval_seconds: 15
+
+  # Maximum number of metrics to batch before sending to pipeline
+  # Default: 100
+  # Larger batches reduce overhead but increase latency
+  batch_size: 100
+
+  # Timeout for collection operations (seconds)
+  # Default: 30
+  collection_timeout_seconds: 30
+
+  # Enable/disable specific collectors
+  collectors:
+    prometheus: true
+    kubernetes: true
+    custom_metrics: true
+
+# =============================================================================
+# Pipeline Configuration
+# =============================================================================
+# The pipeline service processes telemetry data through the event streaming layer.
+pipeline:
+  # Kafka broker addresses for event streaming
+  # Multiple brokers can be specified for high availability
+  kafka_brokers:
+    - "localhost:9092"
+    # - "kafka-2:9092"  # Add additional brokers as needed
+    # - "kafka-3:9092"
+
+  # Consumer group ID for fault-tolerant consumption
+  # Each service type should use a unique consumer group
+  consumer_group: "rustops-pipeline"
+
+  # Where to start reading when no offset is stored
+  # Options: "earliest", "latest"
+  # "latest" - Start from new messages only (recommended for production)
+  # "earliest" - Start from beginning (useful for backfilling)
+  auto_offset_reset: "latest"
+
+  # Session timeout for consumer group (milliseconds)
+  session_timeout_ms: 30000
+
+  # Maximum number of records per poll
+  max_poll_records: 500
+
+  # Enable TLS for Kafka connections
+  kafka_tls_enabled: false
+  # kafka_ca_cert_path: "/path/to/ca.pem"
+  # kafka_client_cert_path: "/path/to/client.pem"
+  # kafka_client_key_path: "/path/to/client-key.pem"
+
+# =============================================================================
+# Telemetry Configuration
+# =============================================================================
+telemetry:
+  # Prometheus metrics endpoint configuration
+  prometheus:
+    # URL of the Prometheus server
+    url: "http://localhost:9090"
+
+    # How often Prometheus scrapes metrics
+    # Should match your Prometheus scrape_interval
+    scrape_interval: "15s"
+
+    # Port for exposing RustOps metrics
+    # Default: 9090 (ensure no conflicts with other services)
+    metrics_port: 9090
+
+    # Enable histogram metrics for latency quantiles
+    enable_histograms: true
+
+  # Logging configuration
+  logging:
+    # Log level: trace, debug, info, warn, error
+    # Default: info
+    level: "info"
+
+    # Log format: json, text, pretty
+    # json - Structured logging for production
+    # text - Plain text logging for development
+    # pretty - Human-readable with colors
+    format: "json"
+
+    # Log output destination
+    # Options: stdout, file, both
+    output: "stdout"
+
+    # File logging configuration (when output is "file" or "both")
+    file_path: "/var/log/rustops/rustops.log"
+    max_file_size_mb: 100
+    max_backups: 10
+    max_age_days: 30
+
+    # Enable request/response logging for HTTP APIs
+    http_logging_enabled: true
+
+  # Distributed tracing configuration
+  tracing:
+    # Enable OpenTelemetry tracing
+    enabled: true
+
+    # Sampling rate (0.0 to 1.0)
+    # 1.0 = trace all requests
+    # 0.1 = trace 10% of requests
+    sample_rate: 0.1
+
+    # Jaeger endpoint for trace export
+    jaeger_endpoint: "http://localhost:14268/api/traces"
+
+# =============================================================================
+# Anomaly Detection Configuration
+# =============================================================================
+anomaly:
+  # Z-score detector configuration
+  # Detects spikes/drops using standard deviation
+  z_score_threshold: 2.0
+  # Threshold values:
+  # - 2.0: ~95% confidence (more sensitive, more false positives)
+  # - 3.0: ~99.7% confidence (less sensitive, fewer false positives)
+
+  # IQR (Interquartile Range) detector configuration
+  # Detects outliers using quartiles
+  iqr_multiplier: 1.5
+  # Standard Tukey fences:
+  # - 1.5: Standard outlier detection
+  # - 3.0: Extreme outlier detection
+
+  # CUSUM detector configuration
+  # Detects cumulative changes over time
+  cusum_threshold: 5.0
+  cusum_target_value: 0.0
+
+  # Machine Learning model configuration
+  ml_model_path: "/models/anomaly.onnx"
+  # ONNX Runtime models for advanced anomaly detection
+  # Models should be trained on your metric data patterns
+
+  # Detection window settings
+  detection_window_seconds: 300
+  # Time window (in seconds) for analyzing metric history
+  # Larger windows = more accurate but slower detection
+  # Recommended: 300 (5 minutes) for most use cases
+
+  # Minimum data points required for detection
+  minimum_data_points: 100
+  # Insufficient data will result in "no anomaly" rather than false positives
+
+  # Detection modes to enable
+  detection_modes:
+    - "statistical"  # Z-score, IQR, CUSUM (<1ms latency)
+    - "ml"           # Machine learning (~50ms latency)
+    - "pattern"      # Signature-based matching
+
+  # Alerting thresholds
+  alert_thresholds:
+    critical: 0.9      # 90%+ confidence
+    major: 0.75        # 75-90% confidence
+    minor: 0.5         # 50-75% confidence
+
+# =============================================================================
+# Incident Management Configuration
+# =============================================================================
+incident:
+  # Alert correlation settings
+  correlation_window_minutes: 15
+  # Time window for grouping related alerts into incidents
+  # Alerts within this window are considered potentially related
+
+  deduplication_similarity_threshold: 0.85
+  # Similarity threshold (0.0-1.0) for detecting duplicate alerts
+  # Higher values = stricter matching (fewer duplicates)
+  # Lower values = looser matching (may catch more duplicates but risk false positives)
+
+  # Auto-escalation configuration
+  auto_escalation:
+    # Time before P1 incidents auto-escalate
+    p1_escalation_minutes: 5
+
+    # Time before P2 incidents auto-escalate
+    p2_escalation_minutes: 15
+
+    # Time before P3 incidents auto-escalate
+    p3_escalation_minutes: 30
+
+    # Escalation targets (e.g., PagerDuty, Slack, email)
+    escalation_targets:
+      - type: "pagerduty"
+        enabled: true
+        service_key: "your-pagerduty-service-key"
+      - type: "slack"
+        enabled: true
+        webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+        channel: "#incidents"
+
+  # Maximum incident history to retain
+  max_incident_history_days: 90
+
+  # Enable automatic incident closure
+  auto_close_enabled: true
+  auto_close_after_minutes: 60
+
+  # Root cause analysis settings
+  root_cause:
+    enabled: true
+    max_depth: 5              # Maximum dependency depth to explore
+    confidence_threshold: 0.7 # Minimum confidence for root cause candidates
+
+# =============================================================================
+# Remediation Configuration
+# =============================================================================
+remediation:
+  # Approval strategy for remediation actions
+  # Options:
+  # - "auto": All actions execute automatically (dangerous in production)
+  # - "manual": All actions require approval (safest, slowest)
+  # - "hybrid": Low-risk actions auto, high-risk require approval (recommended)
+  default_approval_strategy: "hybrid"
+
+  # Blast radius limits to prevent widespread damage
+  blast_radius:
+    enabled: true
+
+    # Maximum number of services affected by a single action
+    max_affected_services: 5
+
+    # Maximum namespace depth for actions
+    max_namespace_depth: 3
+
+    # Scope restrictions
+    # Options: "pod", "namespace", "cluster", "region", "global"
+    max_allowed_scope: "namespace"
+
+    # Protected namespaces that require additional approval
+    protected_namespaces:
+      - "production"
+      - "prod-*"
+      - "critical"
+
+    # Protected clusters that require additional approval
+    protected_clusters:
+      - "us-east-1-prod"
+      - "eu-west-1-prod"
+
+  # Safety checks to perform before remediation
+  # All checks must pass before action execution
+  safety_checks:
+    - "business_hours_check"      # Only execute during business hours
+    - "maintenance_window_check"  # Only during maintenance windows
+    - "canary_deployment_check"   # Ensure canary is healthy
+    - "dependant_services_check"  # Check downstream service health
+    - "capacity_check"            # Ensure sufficient cluster capacity
+
+  # Cooldown period between remediation actions (seconds)
+  # Prevents rapid repeated actions on the same resource
+  cooldown_seconds: 300
+
+  # Circuit breaker configuration
+  circuit_breaker:
+    # Number of failures before circuit opens
+    failure_threshold: 3
+
+    # Time (seconds) before attempting recovery
+    reset_timeout_seconds: 60
+
+    # Number of successes required to close circuit
+    success_threshold: 2
+
+  # Rollback configuration
+  rollback:
+    # Automatic rollback on failure
+    auto_rollback_enabled: true
+
+    # Timeout for rollback operations (seconds)
+    rollback_timeout_seconds: 300
+
+    # Verification checks after rollback
+    verification_checks:
+      - "service_health_check"
+      - "metric_recovery_check"
+      - "dependency_check"
+
+# =============================================================================
+# Topology Configuration
+# =============================================================================
+topology:
+  # Service discovery interval (seconds)
+  # How often to refresh the service topology
+  discovery_interval_seconds: 60
+
+  # Neo4j graph database connection
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_username: "neo4j"
+  neo4j_password: "change-me"  # Use environment variable RUSTOPS_NEO4J_PASSWORD
+  neo4j_database: "rustops"
+
+  # Discovery sources
+  discovery_sources:
+    kubernetes:
+      enabled: true
+      # Kubernetes namespace to monitor (empty = all namespaces)
+      namespace: ""
+      # Include system namespaces (kube-system, etc.)
+      include_system: false
+      # Label selector for filtering services
+      label_selector: "app.kubernetes.io/managed-by=rustops"
+
+    prometheus:
+      enabled: true
+      url: "http://localhost:9090"
+
+    service_mesh:
+      enabled: false
+      type: "istio"  # Options: "istio", "linkerd"
+
+  # Communication patterns to detect
+  communication_patterns:
+    - "http"       # HTTP/HTTPS connections
+    - "grpc"       # gRPC connections
+    - "kafka"      # Kafka messaging
+    - "database"   # Database connections
+    - "cache"      # Cache connections (Redis, Memcached)
+    - "external"   # External API calls
+
+  # Impact analysis configuration
+  impact_analysis:
+    # Maximum depth for dependency traversal
+    max_depth: 10
+
+    # Include transitive dependencies
+    include_transitive: true
+
+    # Impact score thresholds
+    thresholds:
+      critical: 0.8   # 80%+ of services affected
+      major: 0.5      # 50-80% of services affected
+      minor: 0.2      # 20-50% of services affected
+
+# =============================================================================
+# Knowledge Graph Configuration
+# =============================================================================
+knowledge:
+  # HNSW (Hierarchical Navigable Small World) index configuration
+  # Provides 150x-12,500x faster semantic search vs linear search
+  hnsw_index_dimension: 384
+  # Dimension count must match your embedding model
+  # Common dimensions:
+  # - 384: all-MiniLM-L6-v2 (fast, good quality)
+  # - 768: all-mpnet-base-v2 (slower, better quality)
+  # - 1536: OpenAI text-embedding-ada-002
+
+  # HNSW performance tuning
+  hnsw_m: 16              # Max connections per node (higher = better recall, more memory)
+  hnsw_ef_construction: 32  # Search depth during index construction
+  hnsw_ef_search: 32      # Search depth during queries
+
+  # Similarity threshold for knowledge retrieval (0.0-1.0)
+  similarity_threshold: 0.75
+  # Higher values = more exact matches (fewer results)
+  # Lower values = more fuzzy matches (more results, potential false positives)
+
+  # Storage configuration
+  storage_path: "/data/knowledge"
+  # Directory for storing embeddings, patterns, and runbooks
+
+  # Embedding model configuration
+  embedding:
+    model_path: "/models/all-MiniLM-L6-v2.onnx"
+    model_type: "sentence_transformers"
+    batch_size: 32
+    max_text_length: 512
+
+  # Knowledge types to index
+  knowledge_types:
+    - "incident_resolution"  # Past incident resolutions
+    - "runbook"              # Operational procedures
+    - "pattern"              # Anomaly patterns
+    - "documentation"        # Technical documentation
+    - "postmortem"           # Incident postmortems
+
+  # Learning configuration
+  learning:
+    # Automatically learn from successful resolutions
+    auto_learn_enabled: true
+
+    # Minimum confidence for auto-learning
+    min_confidence_for_learning: 0.8
+
+    # Review period before auto-learning (days)
+    review_period_days: 7
+
+# =============================================================================
+# API Server Configuration
+# =============================================================================
+api:
+  # Server port
+  port: 8080
+
+  # Bind address (0.0.0.0 for all interfaces)
+  host: "0.0.0.0"
+
+  # TLS/SSL configuration
+  tls_enabled: false
+  tls_cert_path: "/etc/rustops/tls/cert.pem"
+  tls_key_path: "/etc/rustops/tls/key.pem"
+
+  # CORS configuration
+  cors:
+    enabled: true
+    allowed_origins:
+      - "http://localhost:3000"
+      - "https://rustops.example.com"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+    allowed_headers:
+      - "Content-Type"
+      - "Authorization"
+
+  # Rate limiting
+  rate_limit:
+    enabled: true
+    requests_per_second: 100
+    burst_size: 200
+
+  # Authentication
+  authentication:
+    enabled: false
+    # Authentication methods: "jwt", "api_key", "oauth2"
+    method: "jwt"
+    jwt_secret: "your-secret-key"  # Use environment variable
+    jwt_expiry_hours: 24
+
+# =============================================================================
+# Integration Configuration
+# =============================================================================
+integration:
+  # ServiceNow ITSM integration
+  servicenow:
+    enabled: false
+    instance_url: "https://your-instance.service-now.com"
+    username: "rustops"
+    password: "change-me"  # Use environment variable
+    incident_table: "incident"
+    default_assignment_group: "DevOps"
+
+  # PagerDuty integration
+  pagerduty:
+    enabled: false
+    api_key: "your-pagerduty-api-key"  # Use environment variable
+    default_service_id: "your-service-id"
+    escalation_policy_id: "your-escalation-policy-id"
+
+  # Slack integration
+  slack:
+    enabled: false
+    webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+    default_channel: "#incidents"
+    username: "RustOps"
+    icon_emoji: ":robot_face:"
+
+  # Kubernetes integration
+  kubernetes:
+    enabled: true
+    # Path to kubeconfig (empty = use in-cluster config)
+    kubeconfig_path: ""
+    # Context to use (empty = use current context)
+    context: ""
+
+  # External alert sources
+  alert_sources:
+    prometheus:
+      enabled: true
+      webhook_path: "/webhooks/prometheus"
+
+    alertmanager:
+      enabled: true
+      webhook_path: "/webhooks/alertmanager"
+
+    datadog:
+      enabled: false
+      api_key: "your-datadog-api-key"
+
+# =============================================================================
+# Feature Flags
+# =============================================================================
+features:
+  # Enable experimental features
+  experimental_mode: false
+
+  # Feature-specific flags
+  auto_remediation: true
+  predictive_alerting: false
+  ml_anomaly_detection: true
+  topology_discovery: true
+  knowledge_graph: true
+
+# =============================================================================
+# Development Settings
+# =============================================================================
+# These settings should NOT be used in production
+development:
+  # Enable debug mode (verbose logging, debug endpoints)
+  debug: false
+
+  # Enable profiling endpoints
+  profiling_enabled: false
+
+  # Mock external services (for testing)
+  mock_integrations: false
+
+  # Disable authentication (for local development)
+  disable_auth: false
+
+# =============================================================================
+# Environment Variable Override
+# =============================================================================
+# The following environment variables override config file values:
+#
+# RUST_LOG                    - Log level (trace, debug, info, warn, error)
+# RUSTOPS_API_PORT            - API server port (default: 8080)
+# RUSTOPS_AGENT_PORT          - Agent service port (default: 8081)
+# RUSTOPS_PIPELINE_PORT       - Pipeline service port (default: 9090)
+# KAFKA_BROKERS               - Comma-separated Kafka broker addresses
+# NEO4J_URI                  - Neo4j connection URI
+# NEO4J_PASSWORD              - Neo4j database password
+# PROMETHEUS_URL              - Prometheus server URL
+# RUSTOPS_CONFIG_PATH         - Path to config file
+# RUSTOPS_NEO4J_PASSWORD      - Neo4j password (safer than in config)
+# RUSTOPS_JWT_SECRET          - JWT signing secret
+# RUSTOPS_ENCRYPTION_KEY       - Encryption key for sensitive data
+#
+# Example usage:
+#   export RUST_LOG=debug
+#   export KAFKA_BROKERS=kafka-1:9092,kafka-2:9092
+#   export NEO4J_PASSWORD=secure-password
+#   rustops-api --config /etc/rustops/config.yaml

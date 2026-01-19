@@ -1,0 +1,171 @@
+# Prometheus alerting rules for RustOps
+
+groups:
+  - name: rustops_alerts
+    interval: 30s
+    rules:
+      # API availability alerts
+      - alert: RustOpsAPIHighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="rustops-api",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="rustops-api"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          tier: application
+        annotations:
+          summary: "High error rate on RustOps API"
+          description: "API error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+
+      - alert: RustOpsAPIDown
+        expr: up{job="rustops-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          tier: application
+        annotations:
+          summary: "RustOps API instance is down"
+          description: "{{ $labels.instance }} has been down for more than 2 minutes"
+
+      # Pipeline alerts
+      - alert: RustOpsPipelineBacklog
+        expr: |
+          sum(kafka_consumer_lag{topic="incidents",consumer="rustops-pipeline"}) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          tier: application
+        annotations:
+          summary: "Pipeline processing backlog detected"
+          description: "Pipeline has {{ $value }} messages pending in backlog"
+
+      - alert: RustOpsPipelineSlowProcessing
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(pipeline_processing_duration_seconds_bucket{job="rustops-pipeline"}[5m])) by (le)
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+          tier: application
+        annotations:
+          summary: "Pipeline processing is slow"
+          description: "95th percentile processing time is {{ $value }}s"
+
+      # Agent alerts
+      - alert: RustOpsAgentNotReporting
+        expr: |
+          time() - max(agent_last_report_timestamp{job="rustops-agent"}) > 300
+        for: 5m
+        labels:
+          severity: warning
+          tier: application
+        annotations:
+          summary: "Agent not reporting metrics"
+          description: "Agent {{ $labels.instance }} has not reported in over 5 minutes"
+
+      # Infrastructure alerts
+      - alert: PostgreSQLHighConnections
+        expr: |
+          (
+            pg_stat_database_numbackends{datname="rustops"}
+            /
+            pg_settings_max_connections
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "PostgreSQL high connection usage"
+          description: "PostgreSQL is using {{ $value | humanizePercentage }} of max connections"
+
+      - alert: RedisHighMemoryUsage
+        expr: |
+          (
+            redis_memory_used_bytes{job="redis"}
+            /
+            redis_memory_max_bytes{job="redis"}
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis is using {{ $value | humanizePercentage }} of max memory"
+
+      - alert: KafkaConsumerLag
+        expr: |
+          sum(kafka_consumergroup_lag{topic=~"incidents|alerts|metrics"}) by (consumergroup) > 10000
+        for: 10m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "High Kafka consumer lag"
+          description: "Consumer group {{ $labels.consumergroup }} has lag of {{ $value }} messages"
+
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})
+            < 0.1
+          )
+        for: 10m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "Low disk space"
+          description: "Disk usage on {{ $labels.instance }} is above 90%"
+
+  - name: service_level_objectives
+    interval: 1m
+    rules:
+      # SLO: API uptime > 99.9%
+      - alert: APIAvailabilitySLOViolation
+        expr: |
+          (
+            sum(rate(http_requests_total{job="rustops-api",status!~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="rustops-api"}[5m]))
+          ) < 0.999
+        for: 5m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "API availability SLO violation"
+          description: "API availability is {{ $value | humanizePercentage }}, below SLO of 99.9%"
+
+      # SLO: API latency p95 < 500ms
+      - alert: APILatencySLOViolation
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="rustops-api"}[5m])) by (le)
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          slo: latency
+        annotations:
+          summary: "API latency SLO violation"
+          description: "API p95 latency is {{ $value }}s, above SLO of 500ms"
+
+      # SLO: Pipeline processing time p95 < 10s
+      - alert: PipelineLatencySLOViolation
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(pipeline_processing_duration_seconds_bucket{job="rustops-pipeline"}[5m])) by (le)
+          ) > 10
+        for: 10m
+        labels:
+          severity: warning
+          slo: latency
+        annotations:
+          summary: "Pipeline latency SLO violation"
+          description: "Pipeline p95 processing time is {{ $value }}s, above SLO of 10s"
