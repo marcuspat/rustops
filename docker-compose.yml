@@ -5,8 +5,6 @@
 # - Infrastructure: Kafka, Neo4j, PostgreSQL, Redis, Prometheus, Grafana, Jaeger
 # - Application: rustops-api (3x), rustops-agent (2x), rustops-pipeline (2x)
 
-version: '3.8'
-
 x-service-defaults: &service-defaults
   restart: unless-stopped
   networks:
@@ -17,22 +15,17 @@ x-service-defaults: &service-defaults
       max-size: "10m"
       max-file: "3"
 
-x-rustops-service: &rustops-service
-  <<: *service-defaults
-  build:
-    context: .
-    dockerfile: Dockerfile
-  environment:
-    - RUST_LOG=info
-    - RUST_BACKTRACE=1
-    - DATABASE_URL=postgresql://rustops:rustops_password@postgres:5432/rustops
-    - REDIS_URL=redis://redis:6379
-    - KAFKA_BROKERS=kafka:9092
-    - NEO4J_URI=bolt://neo4j:7687
-    - NEO4J_USER=neo4j
-    - NEO4J_PASSWORD=neo4j_password
-    - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
-    - PROMETHEUS_ENDPOINT=http://prometheus:9090
+x-rustops-common-env: &rustops-common-env
+  RUST_LOG: info
+  RUST_BACKTRACE: "1"
+  DATABASE_URL: postgresql://rustops:rustops_password@postgres:5432/rustops
+  REDIS_URL: redis://redis:6379
+  KAFKA_BROKERS: kafka:9092
+  NEO4J_URI: bolt://neo4j:7687
+  NEO4J_USER: neo4j
+  NEO4J_PASSWORD: neo4j_password
+  JAEGER_ENDPOINT: http://jaeger:14268/api/traces
+  PROMETHEUS_ENDPOINT: http://prometheus:9090
 
 networks:
   rustops-network:
@@ -349,8 +342,10 @@ services:
 
   # rustops-api - REST API gateway (3 replicas for HA)
   rustops-api:
-    <<: *rustops-service
-    container_name: rustops-api
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
     depends_on:
       postgres:
         condition: service_healthy
@@ -361,9 +356,9 @@ services:
       neo4j:
         condition: service_healthy
     environment:
-      - SERVICE_NAME=rustops-api
-      - SERVICE_PORT=8080
-      - <<: *rustops-service
+      <<: *rustops-common-env
+      SERVICE_NAME: rustops-api
+      SERVICE_PORT: "8080"
     ports:
       - "8080-8082:8080"
     command: ["./rustops-api"]
@@ -391,18 +386,20 @@ services:
 
   # rustops-agent - Metric collection agents (2 replicas)
   rustops-agent:
-    <<: *rustops-service
-    container_name: rustops-agent
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
     depends_on:
       kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      - SERVICE_NAME=rustops-agent
-      - SERVICE_PORT=8081
-      - AGENT_MODE=collector
-      - <<: *rustops-service
+      <<: *rustops-common-env
+      SERVICE_NAME: rustops-agent
+      SERVICE_PORT: "8081"
+      AGENT_MODE: collector
     ports:
       - "8081-8082:8081"
     command: ["./rustops-agent"]
@@ -430,8 +427,10 @@ services:
 
   # rustops-pipeline - Incident processing pipeline (2 replicas)
   rustops-pipeline:
-    <<: *rustops-service
-    container_name: rustops-pipeline
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pipeline
     depends_on:
       postgres:
         condition: service_healthy
@@ -440,10 +439,10 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - SERVICE_NAME=rustops-pipeline
-      - SERVICE_PORT=8082
-      - PIPELINE_MODE=processor
-      - <<: *rustops-service
+      <<: *rustops-common-env
+      SERVICE_NAME: rustops-pipeline
+      SERVICE_PORT: "8082"
+      PIPELINE_MODE: processor
     ports:
       - "8083-8084:8082"
     command: ["./rustops-pipeline"]
