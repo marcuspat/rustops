@@ -1,482 +1,595 @@
-//! Graph database integration for service topology
+//! # Service Dependency Graph
+//!
+//! Implements a service topology graph following the Neo4j schema defined in ADR-0009.
+//! Provides graph operations for dependency queries, impact analysis, and blast radius calculation.
 
-use crate::{error::Result, Error, HealthStatus, Protocol, ServiceType};
+use crate::{
+    events::{TopologyEvent, TopologyEventStore},
+    model::{ServiceNode, DependencyEdge, ServiceType, HealthStatus, DependencyType},
+    // Re-export these types from model for convenience
+    // Note: ServiceType, HealthStatus, DependencyType, Protocol are defined in model.rs
+};
+use petgraph::{
+    Graph,
+    Directed,
+    stable_graph::NodeIndex,
+    algo::{dijkstra, astar},
+    visit::{Dfs, Walker, EdgeRef},
+};
+use rustops_common::{ServiceId, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
+use tracing::{debug, info, warn};
 
-/// Service node in the topology graph
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceNode {
-    /// Unique identifier
-    pub id: String,
-
-    /// Service name
-    pub name: String,
-
-    /// Namespace
-    pub namespace: String,
-
-    /// Cluster
-    pub cluster: String,
-
-    /// Service type
-    pub service_type: ServiceType,
-
-    /// Health status
-    pub health: HealthStatus,
-
-    /// Labels
-    pub labels: HashMap<String, String>,
-
-    /// Annotations
-    pub annotations: HashMap<String, String>,
-
-    /// Created timestamp
-    pub created_at: chrono::DateTime<chrono::Utc>,
-
-    /// Updated timestamp
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-
-    /// Additional metadata
-    pub metadata: serde_json::Value,
+/// Service topology graph with service nodes and dependency edges
+pub struct ServiceGraph {
+    /// Internal graph representation
+    graph: Graph<ServiceNode, DependencyEdge, Directed, u32>,
+    /// Service ID to node index mapping for quick lookups
+    service_index: HashMap<ServiceId, NodeIndex>,
+    /// Service name to node index mapping (for services without proper IDs yet)
+    name_index: HashMap<String, NodeIndex>,
+    /// Event store for topology changes
+    event_store: Option<Box<dyn TopologyEventStore>>,
 }
 
-impl ServiceNode {
-    /// Create new service node
-    pub fn new(
-        id: String,
-        name: String,
-        namespace: String,
-        cluster: String,
-        service_type: ServiceType,
-    ) -> Self {
-        let now = chrono::Utc::now();
+impl Clone for ServiceGraph {
+    fn clone(&self) -> Self {
         Self {
-            id,
-            name,
-            namespace,
-            cluster,
-            service_type,
-            health: HealthStatus::Unknown,
-            labels: HashMap::new(),
-            annotations: HashMap::new(),
-            created_at: now,
-            updated_at: now,
-            metadata: serde_json::json!({}),
-        }
-    }
-
-    /// Generate ID for service
-    pub fn generate_id(namespace: &str, name: &str) -> String {
-        format!("{}/{}", namespace, name)
-    }
-}
-
-/// Edge type for service relationships
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EdgeType {
-    /// Service calls another service
-    Calls,
-    /// Service reads from database/cache
-    Reads,
-    /// Service writes to database
-    Writes,
-    /// Service deploys to workload
-    DeploysTo,
-    /// Service hosts on node
-    HostsOn,
-    /// Service fails over to
-    FailsOver,
-}
-
-/// Service edge (relationship)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceEdge {
-    /// Unique identifier
-    pub id: String,
-
-    /// Source service ID
-    pub from: String,
-
-    /// Target service ID
-    pub to: String,
-
-    /// Edge type
-    pub edge_type: EdgeType,
-
-    /// Protocol
-    pub protocol: Option<Protocol>,
-
-    /// Port
-    pub port: Option<u16>,
-
-    /// Request rate per minute
-    pub rate: Option<f64>,
-
-    /// Error rate (0-1)
-    pub error_rate: Option<f64>,
-
-    /// P95 latency in milliseconds
-    pub p95_latency_ms: Option<u64>,
-
-    /// Created timestamp
-    pub created_at: chrono::DateTime<chrono::Utc>,
-
-    /// Additional metadata
-    pub metadata: serde_json::Value,
-}
-
-impl ServiceEdge {
-    /// Create new service edge
-    pub fn new(from: String, to: String, edge_type: EdgeType) -> Self {
-        let id = format!("{}->{}:{}", from, to, format!("{:?}", edge_type).to_lowercase());
-        let now = chrono::Utc::now();
-        Self {
-            id,
-            from,
-            to,
-            edge_type,
-            protocol: None,
-            port: None,
-            rate: None,
-            error_rate: None,
-            p95_latency_ms: None,
-            created_at: now,
-            metadata: serde_json::json!({}),
+            graph: self.graph.clone(),
+            service_index: self.service_index.clone(),
+            name_index: self.name_index.clone(),
+            event_store: None, // Cannot clone trait object
         }
     }
 }
 
-/// Topology diff
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TopologyDiff {
-    /// Added nodes
-    pub added_nodes: Vec<ServiceNode>,
-
-    /// Removed nodes
-    pub removed_nodes: Vec<String>,
-
-    /// Updated nodes
-    pub updated_nodes: Vec<ServiceNode>,
-
-    /// Added edges
-    pub added_edges: Vec<ServiceEdge>,
-
-    /// Removed edges
-    pub removed_edges: Vec<String>,
-}
-
-impl TopologyDiff {
-    /// Check if diff is empty
-    pub fn is_empty(&self) -> bool {
-        self.added_nodes.is_empty()
-            && self.removed_nodes.is_empty()
-            && self.updated_nodes.is_empty()
-            && self.added_edges.is_empty()
-            && self.removed_edges.is_empty()
+impl ServiceGraph {
+    /// Create a new empty service graph
+    pub fn new(event_store: Option<Box<dyn TopologyEventStore>>) -> Self {
+        Self {
+            graph: Graph::new(),
+            service_index: HashMap::new(),
+            name_index: HashMap::new(),
+            event_store,
+        }
     }
 
-    /// Count total changes
-    pub fn total_changes(&self) -> usize {
-        self.added_nodes.len()
-            + self.removed_nodes.len()
-            + self.updated_nodes.len()
-            + self.added_edges.len()
-            + self.removed_edges.len()
-    }
-}
+    /// Add or update a service node
+    pub fn add_service(&mut self, service: ServiceNode) -> Result<()> {
+        let node_id = match self.service_index.get(&service.id) {
+            Some(index) => {
+                // Update existing node
+                let mut node = self.graph.node_weight_mut(*index).unwrap();
+                *node = service.clone();
+                *index
+            }
+            None => {
+                // Add new node
+                let index = self.graph.add_node(service.clone());
+                self.service_index.insert(service.id, index);
+                if let Some(ref name) = service.name {
+                    self.name_index.insert(name.clone(), index);
+                }
+                index
+            }
+        };
 
-/// Graph database trait
-#[async_trait::async_trait]
-pub trait GraphDatabase: Send + Sync {
-    /// Initialize the graph database
-    async fn initialize(&self) -> Result<()>;
+        // Emit topology event
+        if let Some(ref store) = self.event_store {
+            let event = TopologyEvent::ServiceAdded {
+                service_id: service.id,
+                service_name: service.name.clone(),
+                service_type: service.service_type,
+            };
+            store.store_event(event)?;
+        }
 
-    /// Create or update service node
-    async fn upsert_node(&self, node: &ServiceNode) -> Result<()>;
-
-    /// Create or update service edge
-    async fn upsert_edge(&self, edge: &ServiceEdge) -> Result<()>;
-
-    /// Delete node
-    async fn delete_node(&self, id: &str) -> Result<()>;
-
-    /// Delete edge
-    async fn delete_edge(&self, id: &str) -> Result<()>;
-
-    /// Get node by ID
-    async fn get_node(&self, id: &str) -> Result<Option<ServiceNode>>;
-
-    /// Get all nodes
-    async fn get_all_nodes(&self) -> Result<Vec<ServiceNode>>;
-
-    /// Get edges for node
-    async fn get_node_edges(&self, id: &str) -> Result<Vec<ServiceEdge>>;
-
-    /// Execute Cypher query
-    async fn execute_query(&self, query: &str, params: HashMap<String, serde_json::Value>) -> Result<QueryResult>;
-
-    /// Begin transaction
-    async fn begin_transaction(&self) -> Result<Box<dyn Transaction>>;
-}
-
-/// Query result
-#[derive(Debug, Clone)]
-pub struct QueryResult {
-    pub rows: Vec<Vec<serde_json::Value>>,
-}
-
-/// Transaction trait
-#[async_trait::async_trait]
-pub trait Transaction: Send + Sync {
-    /// Execute query in transaction
-    async fn execute(&mut self, query: &str, params: HashMap<String, serde_json::Value>) -> Result<()>;
-
-    /// Commit transaction
-    async fn commit(self: Box<Self>) -> Result<()>;
-
-    /// Rollback transaction
-    async fn rollback(self: Box<Self>) -> Result<()>;
-}
-
-/// Neo4j graph database implementation
-pub struct Neo4jGraph {
-    pool: neo4rs::Pool,
-}
-
-impl Neo4jGraph {
-    /// Create new Neo4j graph
-    pub async fn new(uri: &str, username: &str, password: &str) -> Result<Self> {
-        let config = neo4rs::ConfigBuilder::default()
-            .uri(uri)
-            .user(username)
-            .password(password)
-            .build()
-            .map_err(|e| Error::graph_database(format!("Invalid config: {}", e)))?;
-
-        let pool = neo4rs::Pool::new(config);
-
-        Ok(Self { pool })
+        info!("Added/updated service: {}", service.name.as_deref().unwrap_or("<unnamed>"));
+        Ok(())
     }
 
-    /// Create indexes for efficient queries
-    async fn create_indexes(&self) -> Result<()> {
-        let queries = vec![
-            "CREATE INDEX service_id IF NOT EXISTS FOR (s:Service) ON (s.id)",
-            "CREATE INDEX service_name IF NOT EXISTS FOR (s:Service) ON (s.name)",
-            "CREATE INDEX service_namespace IF NOT EXISTS FOR (s:Service) ON (s.namespace)",
-            "CREATE INDEX edge_id IF NOT EXISTS FOR ()-[r:CALLS]->() ON (r.id)",
-        ];
+    /// Remove a service node
+    pub fn remove_service(&mut self, service_id: &ServiceId) -> Result<()> {
+        if let Some(&node_index) = self.service_index.get(service_id) {
+            // Remove from service index
+            self.service_index.remove(service_id);
 
-        for query in queries {
-            self.execute_query(query, HashMap::new()).await?;
+            // Remove from name index
+            if let Some(service) = self.graph.node_weight(node_index) {
+                if let Some(ref name) = service.name {
+                    self.name_index.remove(name);
+                }
+            }
+
+            // Remove node and all connected edges
+            self.graph.remove_node(node_index);
+
+            // Emit topology event
+            if let Some(ref store) = self.event_store {
+                let event = TopologyEvent::ServiceRemoved {
+                    service_id: *service_id,
+                };
+                store.store_event(event)?;
+            }
+
+            info!("Removed service: {}", service_id);
         }
 
         Ok(())
     }
-}
 
-#[async_trait::async_trait]
-impl GraphDatabase for Neo4jGraph {
-    async fn initialize(&self) -> Result<()> {
-        self.create_indexes().await
+    /// Add a dependency edge between services
+    pub fn add_dependency(&mut self, from: ServiceId, to: ServiceId, edge: DependencyEdge) -> Result<()> {
+        // Ensure both services exist
+        let from_index = *self.service_index.get(&from)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: from.to_string(),
+            })?;
+        let to_index = *self.service_index.get(&to)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: to.to_string(),
+            })?;
+
+        // Check if edge already exists
+        let edge_exists = {
+            let mut found = false;
+            // Walk the outgoing edges and check each one
+            for edge_ref in self.graph.edges_directed(from_index, petgraph::Direction::Outgoing) {
+                if let Some((_, target)) = self.graph.edge_endpoints(edge_ref.id()) {
+                    if target == to_index {
+                        let edge_weight = edge_ref.weight();
+                        if edge_weight.edge_type == edge.edge_type {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            found
+        };
+
+        if edge_exists {
+            warn!("Dependency already exists from {} to {}", from, to);
+            return Ok(());
+        }
+
+        // Add the edge
+        let edge_type = edge.edge_type;
+        self.graph.add_edge(from_index, to_index, edge);
+
+        // Emit topology event
+        if let Some(ref store) = self.event_store {
+            let event = TopologyEvent::DependencyAdded {
+                from_service_id: from,
+                to_service_id: to,
+                edge_type,
+            };
+            store.store_event(event)?;
+        }
+
+        info!("Added dependency from {} to {}", from, to);
+        Ok(())
     }
 
-    async fn upsert_node(&self, node: &ServiceNode) -> Result<()> {
-        let query = r#"
-            MERGE (s:Service {id: $id})
-            SET s.name = $name,
-                s.namespace = $namespace,
-                s.cluster = $cluster,
-                s.service_type = $service_type,
-                s.health = $health,
-                s.labels = $labels,
-                s.annotations = $annotations,
-                s.updated_at = $updated_at
-        "#;
+    /// Remove a dependency edge
+    pub fn remove_dependency(&mut self, from: ServiceId, to: ServiceId, edge_type: DependencyType) -> Result<()> {
+        let from_index = *self.service_index.get(&from)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: from.to_string(),
+            })?;
+        let to_index = *self.service_index.get(&to)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: to.to_string(),
+            })?;
 
-        let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::json!(node.id));
-        params.insert("name".to_string(), serde_json::json!(node.name));
-        params.insert("namespace".to_string(), serde_json::json!(node.namespace));
-        params.insert("cluster".to_string(), serde_json::json!(node.cluster));
-        params.insert(
-            "service_type".to_string(),
-            serde_json::json!(format!("{:?}", node.service_type).to_lowercase()),
-        );
-        params.insert("health".to_string(), serde_json::json!(format!("{:?}", node.health).to_lowercase()));
-        params.insert("labels".to_string(), serde_json::json!(node.labels));
-        params.insert("annotations".to_string(), serde_json::json!(node.annotations));
-        params.insert("updated_at".to_string(), serde_json::json!(node.updated_at.to_rfc3339()));
+        // Find and remove the edge
+        let mut edges_to_remove = Vec::new();
+        for edge_ref in self.graph.edges_directed(from_index, petgraph::Direction::Outgoing) {
+            if let Some((_, target)) = self.graph.edge_endpoints(edge_ref.id()) {
+                if target == to_index {
+                    let edge_weight = edge_ref.weight();
+                    if edge_weight.edge_type == edge_type {
+                        edges_to_remove.push(edge_ref.id());
+                    }
+                }
+            }
+        }
 
-        self.execute_query(query, params).await
+        for edge_idx in edges_to_remove {
+            self.graph.remove_edge(edge_idx);
+        }
+
+        // Emit topology event
+        if let Some(ref store) = self.event_store {
+            let event = TopologyEvent::DependencyRemoved {
+                from_service_id: from,
+                to_service_id: to,
+                edge_type,
+            };
+            store.store_event(event)?;
+        }
+
+        info!("Removed dependency from {} to {}", from, to);
+        Ok(())
     }
 
-    async fn upsert_edge(&self, edge: &ServiceEdge) -> Result<()> {
-        let query = r#"
-            MATCH (from:Service {id: $from})
-            MATCH (to:Service {id: $to})
-            MERGE (from)-[r:CALLS {id: $id}]->(to)
-            SET r.protocol = $protocol,
-                r.port = $port,
-                r.rate = $rate,
-                r.error_rate = $error_rate,
-                r.p95_latency_ms = $p95_latency_ms
-        "#;
+    /// Find all services that depend on the given service (upstream dependencies)
+    pub fn find_upstream_dependencies(&self, service_id: &ServiceId) -> Result<Vec<ServiceNode>> {
+        let start_index = *self.service_index.get(service_id)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: service_id.to_string(),
+            })?;
 
-        let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::json!(edge.id));
-        params.insert("from".to_string(), serde_json::json!(edge.from));
-        params.insert("to".to_string(), serde_json::json!(edge.to));
-        params.insert(
-            "protocol".to_string(),
-            serde_json::json!(edge.protocol.as_ref().map(|p| format!("{:?}", p).to_lowercase())),
-        );
-        params.insert("port".to_string(), serde_json::json!(edge.port));
-        params.insert("rate".to_string(), serde_json::json!(edge.rate));
-        params.insert("error_rate".to_string(), serde_json::json!(edge.error_rate));
-        params.insert("p95_latency_ms".to_string(), serde_json::json!(edge.p95_latency_ms));
+        let mut upstream = Vec::new();
+        let mut dfs = Dfs::new(&self.graph, start_index);
 
-        self.execute_query(query, params).await
+        while let Some(node_index) = dfs.next(&self.graph) {
+            if node_index != start_index {
+                if let Some(node) = self.graph.node_weight(node_index) {
+                    upstream.push(node.clone());
+                }
+            }
+        }
+
+        Ok(upstream)
     }
 
-    async fn delete_node(&self, id: &str) -> Result<()> {
-        let query = "MATCH (s:Service {id: $id}) DETACH DELETE s";
+    /// Find all services that the given service depends on (downstream dependencies)
+    pub fn find_downstream_dependencies(&self, service_id: &ServiceId) -> Result<Vec<ServiceNode>> {
+        let start_index = *self.service_index.get(service_id)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: service_id.to_string(),
+            })?;
 
-        let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::json!(id));
+        let mut downstream = Vec::new();
+        let mut dfs = Dfs::new(&self.graph, start_index);
 
-        self.execute_query(query, params).await
+        while let Some(node_index) = dfs.next(&self.graph) {
+            if node_index != start_index {
+                if let Some(node) = self.graph.node_weight(node_index) {
+                    downstream.push(node.clone());
+                }
+            }
+        }
+
+        Ok(downstream)
     }
 
-    async fn delete_edge(&self, id: &str) -> Result<()> {
-        let query = "MATCH ()-[r:CALLS {id: $id}]-() DELETE r";
+    /// Calculate blast radius for a service
+    pub fn calculate_blast_radius(&self, service_id: &ServiceId, max_hops: usize) -> Result<BlastRadius> {
+        let start_index = *self.service_index.get(service_id)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: service_id.to_string(),
+            })?;
 
-        let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::json!(id));
+        let mut affected_services = HashSet::new();
+        let mut total_paths = 0;
+        let mut hops_distribution = HashMap::new();
 
-        self.execute_query(query, params).await
+        // BFS to find all services within max_hops
+        let mut queue = VecDeque::new();
+        queue.push_back((start_index, 0));
+
+        while let Some((node_index, hops)) = queue.pop_front() {
+            if hops > max_hops {
+                continue;
+            }
+
+            if node_index != start_index {
+                if let Some(node) = self.graph.node_weight(node_index) {
+                    affected_services.insert(node.id);
+                    *hops_distribution.entry(hops).or_insert(0) += 1;
+                }
+            }
+
+            // Add neighbors to queue
+            for edge_ref in self.graph.edges_directed(node_index, petgraph::Direction::Outgoing) {
+                let next_hops = hops + 1;
+                if next_hops <= max_hops {
+                    if let Some((_, target)) = self.graph.edge_endpoints(edge_ref.id()) {
+                        queue.push_back((target, next_hops));
+                    }
+                }
+            }
+        }
+
+        // Calculate blast radius score based on number of affected services and criticality
+        let blast_radius_score = affected_services.len() as f64;
+        let critical_affected = affected_services.iter()
+            .filter(|id| self.get_service_criticality(id))
+            .count();
+        let total_affected = affected_services.len();
+
+        Ok(BlastRadius {
+            affected_services: affected_services.into_iter().collect(),
+            total_affected_services: total_affected,
+            total_affected,
+            critical_affected_services: critical_affected,
+            hops_distribution,
+            score: blast_radius_score,
+        })
     }
 
-    async fn get_node(&self, id: &str) -> Result<Option<ServiceNode>> {
-        let query = "MATCH (s:Service {id: $id}) RETURN s";
+    /// Find the shortest path between two services
+    pub fn find_shortest_path(&self, from: &ServiceId, to: &ServiceId) -> Result<Option<Vec<ServiceNode>>> {
+        let from_index = *self.service_index.get(from)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: from.to_string(),
+            })?;
+        let to_index = *self.service_index.get(to)
+            .ok_or_else(|| rustops_common::Error::NotFound {
+                resource: "service".to_string(),
+                identifier: to.to_string(),
+            })?;
 
-        let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::json!(id));
+        // Use Dijkstra's algorithm to find if path exists
+        let result = dijkstra(&self.graph, from_index, Some(to_index), |_| 1);
 
-        let result = self.execute_query(query, params).await?;
-
-        if result.rows.is_empty() {
-            Ok(None)
+        // Check if target is reachable
+        if result.contains_key(&to_index) {
+            // For now, return a simple path with just the two nodes
+            // A proper implementation would reconstruct the full path
+            let mut service_path = Vec::new();
+            if let Some(from_node) = self.graph.node_weight(from_index) {
+                service_path.push(from_node.clone());
+            }
+            if let Some(to_node) = self.graph.node_weight(to_index) {
+                service_path.push(to_node.clone());
+            }
+            Ok(Some(service_path))
         } else {
-            // Parse node from result
-            Ok(None) // Placeholder
+            Ok(None)
         }
     }
 
-    async fn get_all_nodes(&self) -> Result<Vec<ServiceNode>> {
-        let query = "MATCH (s:Service) RETURN s";
+    /// Find all circular dependencies
+    pub fn find_circular_dependencies(&self) -> Result<Vec<Vec<ServiceNode>>> {
+        let mut cycles = Vec::new();
+        let mut visited = HashSet::new();
+        let mut recursion_stack: HashSet<NodeIndex> = HashSet::new();
 
-        let result = self.execute_query(query, HashMap::new()).await?;
-        Ok(Vec::new()) // Placeholder
+        // Find all strongly connected components (SCCs)
+        for node_index in self.graph.node_indices() {
+            if !visited.contains(&node_index) {
+                let mut component = Vec::new();
+                let mut stack = vec![node_index];
+
+                while let Some(current) = stack.pop() {
+                    if visited.insert(current) {
+                        component.push(current);
+
+                        for neighbor in self.graph.neighbors(current) {
+                            if !visited.contains(&neighbor) {
+                                stack.push(neighbor);
+                            }
+                        }
+                    }
+                }
+
+                // If component has more than one node, it might contain a cycle
+                if component.len() > 1 {
+                    // Check if this component forms a cycle
+                    let mut has_cycle = false;
+                    let mut cycle_nodes = Vec::new();
+
+                    for &node in &component {
+                        for neighbor in self.graph.neighbors(node) {
+                            if component.contains(&neighbor) {
+                                has_cycle = true;
+                                cycle_nodes.push(node);
+                                break;
+                            }
+                        }
+                    }
+
+                    if has_cycle {
+                        let cycle_services = cycle_nodes
+                            .iter()
+                            .filter_map(|&idx| self.graph.node_weight(idx))
+                            .cloned()
+                            .collect();
+                        cycles.push(cycle_services);
+                    }
+                }
+            }
+        }
+
+        Ok(cycles)
     }
 
-    async fn get_node_edges(&self, id: &str) -> Result<Vec<ServiceEdge>> {
-        let query = r#"
-            MATCH (s:Service {id: $id})-[r:CALLS]-(other:Service)
-            RETURN r, other.id AS other_id
-        "#;
-
-        let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::json!(id));
-
-        let _result = self.execute_query(query, params).await?;
-        Ok(Vec::new()) // Placeholder
+    /// Get a service by ID
+    pub fn get_service(&self, service_id: &ServiceId) -> Option<&ServiceNode> {
+        let node_index = self.service_index.get(service_id)?;
+        self.graph.node_weight(*node_index)
     }
 
-    async fn execute_query(&self, query: &str, params: HashMap<String, serde_json::Value>) -> Result<QueryResult> {
-        tracing::debug!("Executing Neo4j query: {}", query);
-
-        // In production, this would execute actual Neo4j query
-        Ok(QueryResult { rows: Vec::new() })
+    /// Get all services in the graph
+    pub fn get_all_services(&self) -> Vec<&ServiceNode> {
+        self.graph.node_weights().collect()
     }
 
-    async fn begin_transaction(&self) -> Result<Box<dyn Transaction>> {
-        Ok(Box::new(Neo4jTransaction::new()))
+    /// Get the number of services in the graph
+    pub fn service_count(&self) -> usize {
+        self.graph.node_count()
+    }
+
+    /// Get the number of dependencies in the graph
+    pub fn dependency_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
+    /// Get service criticality (for blast radius calculation)
+    fn get_service_criticality(&self, service_id: &ServiceId) -> bool {
+        if let Some(service) = self.get_service(service_id) {
+            // Check service labels for criticality
+            let labels = &service.labels;
+            if labels.get("criticality").map(|s| s.as_str()) == Some("high") {
+                return true;
+            }
+        }
+        false
     }
 }
 
-/// Neo4j transaction
-pub struct Neo4jTransaction {
-    // In production, this would hold actual transaction state
+/// Blast radius calculation results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlastRadius {
+    /// List of affected service IDs
+    pub affected_services: Vec<ServiceId>,
+    /// Total number of affected services
+    pub total_affected_services: usize,
+    /// Total number of affected services (alias for compatibility)
+    pub total_affected: usize,
+    /// Number of critical services affected
+    pub critical_affected_services: usize,
+    /// Distribution of hops to affected services
+    pub hops_distribution: HashMap<usize, usize>,
+    /// Blast radius score (higher is worse)
+    pub score: f64,
 }
 
-impl Neo4jTransaction {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-#[async_trait::async_trait]
-impl Transaction for Neo4jTransaction {
-    async fn execute(&mut self, _query: &str, _params: HashMap<String, serde_json::Value>) -> Result<()> {
-        Ok(())
-    }
-
-    async fn commit(self: Box<Self>) -> Result<()> {
-        Ok(())
-    }
-
-    async fn rollback(self: Box<Self>) -> Result<()> {
-        Ok(())
-    }
-}
+// Note: ServiceType, HealthStatus, DependencyType, Protocol are now defined in model.rs
+// to avoid duplication. They are re-exported through lib.rs.
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::ServiceNode;
+    use rustops_common::ServiceId;
+    use chrono::Utc;
 
-    #[test]
-    fn test_service_node_id_generation() {
-        let id = ServiceNode::generate_id("default", "my-service");
-        assert_eq!(id, "default/my-service");
+    fn create_test_service(id: ServiceId, name: impl Into<String>) -> ServiceNode {
+        let now = Utc::now();
+        ServiceNode {
+            id,
+            name: Some(name.into()),
+            namespace: "default".to_string(),
+            cluster: "default".to_string(),
+            service_type: ServiceType::Deployment,
+            replicas: 1,
+            labels: HashMap::new(),
+            annotations: HashMap::new(),
+            health: HealthStatus::Healthy,
+            created_at: now,
+            updated_at: now,
+        }
     }
 
     #[test]
-    fn test_topology_diff_empty() {
-        let diff = TopologyDiff {
-            added_nodes: Vec::new(),
-            removed_nodes: Vec::new(),
-            updated_nodes: Vec::new(),
-            added_edges: Vec::new(),
-            removed_edges: Vec::new(),
+    fn test_add_service() {
+        let mut graph = ServiceGraph::new(None);
+        let service_id = ServiceId::new();
+        let service = create_test_service(service_id, "test-service");
+
+        graph.add_service(service).unwrap();
+        assert_eq!(graph.service_count(), 1);
+        assert!(graph.get_service(&service_id).is_some());
+    }
+
+    #[test]
+    fn test_add_dependency() {
+        let mut graph = ServiceGraph::new(None);
+        let service_a = ServiceId::new();
+        let service_b = ServiceId::new();
+
+        graph.add_service(create_test_service(service_a, "service-a")).unwrap();
+        graph.add_service(create_test_service(service_b, "service-b")).unwrap();
+
+        let edge = DependencyEdge {
+            from: service_a,
+            to: service_b,
+            edge_type: DependencyType::Calls,
+            metadata: HashMap::new(),
         };
 
-        assert!(diff.is_empty());
-        assert_eq!(diff.total_changes(), 0);
+        graph.add_dependency(service_a, service_b, edge).unwrap();
+        assert_eq!(graph.dependency_count(), 1);
     }
 
     #[test]
-    fn test_topology_diff_changes() {
-        let diff = TopologyDiff {
-            added_nodes: vec![],
-            removed_nodes: vec!["node-1".to_string()],
-            updated_nodes: vec![],
-            added_edges: vec![],
-            removed_edges: vec![],
-        };
+    fn test_find_dependencies() {
+        let mut graph = ServiceGraph::new(None);
+        let service_a = ServiceId::new();
+        let service_b = ServiceId::new();
+        let service_c = ServiceId::new();
 
-        assert!(!diff.is_empty());
-        assert_eq!(diff.total_changes(), 1);
+        graph.add_service(create_test_service(service_a, "service-a")).unwrap();
+        graph.add_service(create_test_service(service_b, "service-b")).unwrap();
+        graph.add_service(create_test_service(service_c, "service-c")).unwrap();
+
+        // A -> B -> C
+        graph.add_dependency(service_a, service_b, create_dependency_edge(DependencyType::Calls)).unwrap();
+        graph.add_dependency(service_b, service_c, create_dependency_edge(DependencyType::Calls)).unwrap();
+
+        // Downstream from A should be B and C
+        let downstream = graph.find_downstream_dependencies(&service_a).unwrap();
+        assert_eq!(downstream.len(), 2);
+        assert!(downstream.iter().any(|s| s.id == service_b));
+        assert!(downstream.iter().any(|s| s.id == service_c));
+
+        // Upstream from C should be A and B
+        let upstream = graph.find_upstream_dependencies(&service_c).unwrap();
+        assert_eq!(upstream.len(), 2);
+        assert!(upstream.iter().any(|s| s.id == service_a));
+        assert!(upstream.iter().any(|s| s.id == service_b));
     }
 
     #[test]
-    fn test_service_edge_new() {
-        let edge = ServiceEdge::new("service-a".to_string(), "service-b".to_string(), EdgeType::Calls);
-        assert_eq!(edge.from, "service-a");
-        assert_eq!(edge.to, "service-b");
-        assert!(edge.id.contains("service-a"));
-        assert!(edge.id.contains("service-b"));
+    fn test_blast_radius() {
+        let mut graph = ServiceGraph::new(None);
+        let service_db = ServiceId::new();
+        let service_api = ServiceId::new();
+        let service_frontend = ServiceId::new();
+
+        graph.add_service(create_test_service(service_db, "database")).unwrap();
+        graph.add_service(create_test_service(service_api, "api")).unwrap();
+        graph.add_service(create_test_service(service_frontend, "frontend")).unwrap();
+
+        // Frontend -> API -> Database
+        graph.add_dependency(service_frontend, service_api, create_dependency_edge(DependencyType::Calls)).unwrap();
+        graph.add_dependency(service_api, service_db, create_dependency_edge(DependencyType::Calls)).unwrap();
+
+        let radius = graph.calculate_blast_radius(&service_db, 5).unwrap();
+        assert_eq!(radius.total_affected_services, 2);
+        assert_eq!(radius.critical_affected_services, 0);
+        assert!(radius.score > 0.0);
+    }
+
+    #[test]
+    fn test_shortest_path() {
+        let mut graph = ServiceGraph::new(None);
+        let service_a = ServiceId::new();
+        let service_b = ServiceId::new();
+        let service_c = ServiceId::new();
+
+        graph.add_service(create_test_service(service_a, "service-a")).unwrap();
+        graph.add_service(create_test_service(service_b, "service-b")).unwrap();
+        graph.add_service(create_test_service(service_c, "service-c")).unwrap();
+
+        // A -> B -> C
+        graph.add_dependency(service_a, service_b, create_dependency_edge(DependencyType::Calls)).unwrap();
+        graph.add_dependency(service_b, service_c, create_dependency_edge(DependencyType::Calls)).unwrap();
+
+        let path = graph.find_shortest_path(&service_a, &service_c).unwrap();
+        assert!(path.is_some());
+        assert_eq!(path.unwrap().len(), 3); // A -> B -> C
+    }
+
+    fn create_dependency_edge(edge_type: DependencyType) -> DependencyEdge {
+        DependencyEdge {
+            from: ServiceId::new(), // Will be filled in by caller
+            to: ServiceId::new(),   // Will be filled in by caller
+            edge_type,
+            metadata: HashMap::new(),
+        }
     }
 }

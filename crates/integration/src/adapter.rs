@@ -78,14 +78,9 @@ pub trait InfrastructureMonitor: IntegrationAdapter {
     async fn execute_action(&self, action: InfraAction) -> IntegrationResult<ActionResult>;
 }
 
-/// Integration kind
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum IntegrationKind {
-    TelemetryCollector,
-    ITSMNotifier,
-    InfrastructureMonitor,
-    CollaborationChannel,
-}
+// IntegrationKind is now defined in lib.rs to avoid duplication
+// Re-export here for convenience
+pub use crate::IntegrationKind;
 
 // =============================================================================
 // Data Types

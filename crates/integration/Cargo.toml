@@ -16,9 +16,10 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 reqwest = { workspace = true }
-hyper = { workspace = true }
+hyper = { workspace = true, features = ["server", "http1", "tcp"] }
 chrono = { workspace = true }
 uuid = { workspace = true }
+ulid = "1.1"
 
 # Resilience
 backoff = { workspace = true }
@@ -26,14 +27,24 @@ governor = { workspace = true }
 tokio-retry = { workspace = true }
 
 # Kubernetes
-kube = { workspace = true }
+kube = { version = "0.87", features = ["runtime", "client", "ws", "oauth"] }
 k8s-openapi = { workspace = true }
 
+# Encoding and utilities
+urlencoding = "2.1"
+wiremock = "0.6"
+
 # Authentication
-oauth2 = { workspace = true }
+oauth2 = "4.4"
 
 # Common types
 rustops-common = { path = "../common" }
+
+# Prometheus integration
+prometheus = "0.13"
+prometheus-static-metric = "0.5"
+prost = "0.12"
+snap = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"
