@@ -22,6 +22,9 @@ async-trait = { workspace = true }
 ndarray = { workspace = true }
 ndarray-stats = { workspace = true }
 
+# ML/ONNX (optional - requires ONNX Runtime)
+# ort = { version = "2.0", default-features = false, features = ["download-binaries"], optional = true }
+
 # Local
 rustops-common = { path = "../common" }
 

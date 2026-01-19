@@ -14,11 +14,17 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     /// Configuration error
     #[error("configuration error: {message}")]
-    Config { message: String },
+    Config {
+        /// Human-readable error message describing the configuration issue
+        message: String,
+    },
 
     /// Network error
     #[error("network error: {message}")]
-    Network { message: String },
+    Network {
+        /// Human-readable error message describing the network issue
+        message: String,
+    },
 
     /// Authentication error
     #[error("authentication failed")]
@@ -26,83 +32,153 @@ pub enum Error {
 
     /// Authorization error
     #[error("authorization denied: {reason}")]
-    Authorization { reason: String },
+    Authorization {
+        /// Human-readable explanation for why authorization was denied
+        reason: String,
+    },
 
     /// Not found error
     #[error("not found: {resource} '{identifier}'")]
-    NotFound { resource: String, identifier: String },
+    NotFound {
+        /// Type of resource that was not found (e.g., "service", "incident")
+        resource: String,
+        /// Identifier of the specific resource that was not found
+        identifier: String,
+    },
 
     /// Invalid input
     #[error("invalid input: {message}")]
-    InvalidInput { message: String },
+    InvalidInput {
+        /// Human-readable error message describing the validation issue
+        message: String,
+    },
 
     /// Internal error
     #[error("internal error: {message}")]
-    Internal { message: String },
+    Internal {
+        /// Human-readable error message describing the internal issue
+        message: String,
+    },
 
     /// Database error
     #[error("database error: {message}")]
-    Database { message: String },
+    Database {
+        /// Human-readable error message describing the database issue
+        message: String,
+    },
 
     /// Serialization error
     #[error("serialization error: {message}")]
-    Serialization { message: String },
+    Serialization {
+        /// Human-readable error message describing the serialization failure
+        message: String,
+    },
 
     /// Deserialization error
     #[error("deserialization error: {message}")]
-    Deserialization { message: String },
+    Deserialization {
+        /// Human-readable error message describing the deserialization failure
+        message: String,
+    },
 
     /// Validation error
     #[error("validation error: {message}")]
-    Validation { message: String },
+    Validation {
+        /// Human-readable error message describing the validation failure
+        message: String,
+    },
 
     /// Timeout error
     #[error("operation timed out after {duration_ms}ms")]
-    Timeout { duration_ms: u64 },
+    Timeout {
+        /// Duration in milliseconds before the operation timed out
+        duration_ms: u64,
+    },
 
     /// Rate limit exceeded
     #[error("rate limit exceeded: {limit} requests per {window_secs}s")]
-    RateLimit { limit: u32, window_secs: u32 },
+    RateLimit {
+        /// Maximum number of requests allowed within the time window
+        limit: u32,
+        /// Time window in seconds
+        window_secs: u32,
+    },
 
     /// Service unavailable
     #[error("service unavailable: {service}")]
-    ServiceUnavailable { service: String },
+    ServiceUnavailable {
+        /// Name of the service that is unavailable
+        service: String,
+    },
 
     /// Telemetry ingestion error
     #[error("telemetry ingestion error: {message}")]
-    TelemetryIngestion { message: String },
+    TelemetryIngestion {
+        /// Human-readable error message describing the ingestion issue
+        message: String,
+    },
 
     /// Anomaly detection error
     #[error("anomaly detection error: {message}")]
-    AnomalyDetection { message: String },
+    AnomalyDetection {
+        /// Human-readable error message describing the detection issue
+        message: String,
+    },
 
     /// Model loading error
     #[error("model loading error: {model_name}: {message}")]
-    ModelLoading { model_name: String, message: String },
+    ModelLoading {
+        /// Name of the model that failed to load
+        model_name: String,
+        /// Human-readable error message describing the loading failure
+        message: String,
+    },
 
     /// Model inference error
     #[error("model inference error: {model_name}: {message}")]
-    ModelInference { model_name: String, message: String },
+    ModelInference {
+        /// Name of the model that failed during inference
+        model_name: String,
+        /// Human-readable error message describing the inference failure
+        message: String,
+    },
 
     /// Kafka/Streaming error
     #[error("kafka error: {message}")]
-    Kafka { message: String },
+    Kafka {
+        /// Human-readable error message describing the Kafka issue
+        message: String,
+    },
 
     /// Correlation error
     #[error("correlation error: {message}")]
-    Correlation { message: String },
+    Correlation {
+        /// Human-readable error message describing the correlation issue
+        message: String,
+    },
 
     /// Incident error
     #[error("incident error: {message}")]
-    Incident { message: String },
+    Incident {
+        /// Human-readable error message describing the incident issue
+        message: String,
+    },
 
     /// File I/O error
     #[error("file I/O error: {path}: {message}")]
-    Io { path: PathBuf, message: String },
+    Io {
+        /// Path to the file that caused the I/O error
+        path: PathBuf,
+        /// Human-readable error message describing the I/O issue
+        message: String,
+    },
 
     /// Parse error
     #[error("parse error: {message}")]
-    Parse { message: String },
+    Parse {
+        /// Human-readable error message describing the parsing failure
+        message: String,
+    },
 }
 
 impl Error {

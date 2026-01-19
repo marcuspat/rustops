@@ -30,9 +30,7 @@ pub mod repository;
 pub use correlation::{AlertCorrelator, AlertGroup, CorrelationConfig};
 pub use deduplication::{AlertDeduplicator, Fingerprinter};
 pub use events::{IncidentEvent, IncidentEventStore};
-pub use incident::{Incident, IncidentRepository, IncidentStatus, Severity};
+pub use incident::{Incident, IncidentRepository, IncidentStatus};
 pub use repository::{CQRSProjection, ReadModel, WriteModel};
-
-use rustops_common::{Error, Result};
-use std::collections::HashMap;
-use std::time::Duration;
+// Re-export Severity from common for convenience
+pub use rustops_common::events::Severity;

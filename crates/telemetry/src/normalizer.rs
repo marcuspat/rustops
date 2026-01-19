@@ -2,26 +2,38 @@
 //!
 //! Normalizes telemetry data from various formats into a standard format.
 
-use chrono::{DateTime, Utc};
-use rustops_common::{Error, LogEntry, LogLevel, Metric, MetricType, Result, ServiceId};
+use rustops_common::{Error, LogEntry, Metric, MetricType, Result, ServiceId};
+use rustops_common::telemetry::LogLevel;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Telemetry type for normalization
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Telemetry data type (categorizes the kind of telemetry)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TelemetryType {
-    /// Prometheus metric
+    /// Metric data (Prometheus, OpenTelemetry, etc.)
+    Metric,
+    /// Log data (JSON, text, Fluentd, etc.)
+    Log,
+    /// Trace data (Jaeger, Zipkin, OpenTelemetry, etc.)
+    Trace,
+}
+
+/// Telemetry format variants (source-specific formats)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TelemetryFormat {
+    /// Prometheus metric format
     Prometheus,
-    /// OpenTelemetry metric
+    /// OpenTelemetry metric format
     OpenTelemetry,
-    /// Fluentd log
+    /// Fluentd log format
     Fluentd,
-    /// JSON log
+    /// JSON log format
     JsonLog,
-    /// Text log
+    /// Text log format
     TextLog,
-    /// Jaeger trace
+    /// Jaeger trace format
     Jaeger,
-    /// Zipkin trace
+    /// Zipkin trace format
     Zipkin,
 }
 
@@ -37,20 +49,20 @@ impl TelemetryNormalizer {
     }
 
     /// Normalize a metric value
-    pub fn normalize_metric(&self, raw: &str, format: TelemetryType) -> Result<Metric> {
+    pub fn normalize_metric(&self, raw: &str, format: TelemetryFormat) -> Result<Metric> {
         match format {
-            TelemetryType::Prometheus => self.normalize_prometheus_metric(raw),
-            TelemetryType::OpenTelemetry => self.normalize_otel_metric(raw),
+            TelemetryFormat::Prometheus => self.normalize_prometheus_metric(raw),
+            TelemetryFormat::OpenTelemetry => self.normalize_otel_metric(raw),
             _ => Err(Error::invalid_input("unsupported format for metric")),
         }
     }
 
     /// Normalize a log entry
-    pub fn normalize_log(&self, raw: &str, format: TelemetryType) -> Result<LogEntry> {
+    pub fn normalize_log(&self, raw: &str, format: TelemetryFormat) -> Result<LogEntry> {
         match format {
-            TelemetryType::JsonLog => self.normalize_json_log(raw),
-            TelemetryType::TextLog => self.normalize_text_log(raw),
-            TelemetryType::Fluentd => self.normalize_fluentd_log(raw),
+            TelemetryFormat::JsonLog => self.normalize_json_log(raw),
+            TelemetryFormat::TextLog => self.normalize_text_log(raw),
+            TelemetryFormat::Fluentd => self.normalize_fluentd_log(raw),
             _ => Err(Error::invalid_input("unsupported format for log")),
         }
     }
@@ -249,7 +261,7 @@ mod tests {
         let normalizer = TelemetryNormalizer::new(service_id);
 
         let metric = normalizer
-            .normalize_metric(r#"http_requests_total{method="post"} 1027"#, TelemetryType::Prometheus)
+            .normalize_metric(r#"http_requests_total{method="post"} 1027"#, TelemetryFormat::Prometheus)
             .unwrap();
 
         assert_eq!(metric.name, "http_requests_total");
@@ -264,7 +276,7 @@ mod tests {
 
         let json = r#"{"level":"error","message":"Database failed","retry":true}"#;
         let log = normalizer
-            .normalize_log(json, TelemetryType::JsonLog)
+            .normalize_log(json, TelemetryFormat::JsonLog)
             .unwrap();
 
         assert_eq!(log.level, LogLevel::Error);
@@ -277,7 +289,7 @@ mod tests {
         let normalizer = TelemetryNormalizer::new(service_id);
 
         let log = normalizer
-            .normalize_log("[ERROR] Database connection failed", TelemetryType::TextLog)
+            .normalize_log("[ERROR] Database connection failed", TelemetryFormat::TextLog)
             .unwrap();
 
         assert_eq!(log.level, LogLevel::Error);

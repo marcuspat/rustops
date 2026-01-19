@@ -5,12 +5,13 @@
 use crate::{KafkaProducer, TelemetryEnvelope, TelemetryType};
 use chrono::Utc;
 use rustops_common::{
-    LogEntry, LogLevel, Metric, MetricId, MetricType, ServiceId, TraceId, TraceSpan,
+    Error, LogEntry, Metric, MetricType, Result, ServiceId, TraceSpan,
 };
+use rustops_common::telemetry::LogLevel;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 /// Channel buffer size for telemetry ingestion
 const CHANNEL_BUFFER: usize = 10000;

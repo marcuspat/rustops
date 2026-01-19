@@ -36,7 +36,8 @@ pub struct AlertGroup {
     pub group_id: IncidentId,
     pub alerts: Vec<NormalizedAlert>,
     pub root_cause_candidate: AlertId,
-    pub affected_services: Vec<ServiceId>,
+    /// Service names affected by this group
+    pub affected_services: Vec<String>,
     pub impact_score: f64,
     pub created_at: DateTime<Utc>,
 }
@@ -50,7 +51,7 @@ pub struct ServiceGraph {
 
 /// Node in service graph
 #[derive(Clone, Debug)]
-struct ServiceNode {
+pub struct ServiceNode {
     id: ServiceId,
     name: String,
 }

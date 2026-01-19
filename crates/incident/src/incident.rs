@@ -4,7 +4,8 @@
 
 use crate::events::IncidentEvent;
 use chrono::{DateTime, Utc};
-use rustops_common::{AlertId, IncidentId, Result, ServiceId, Severity};
+use rustops_common::{AlertId, IncidentId, Result, ServiceId};
+use rustops_common::events::Severity;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -192,9 +193,6 @@ pub trait IncidentRepository: Send + Sync {
     /// List incidents for a service
     async fn list_by_service(&self, service_id: ServiceId) -> Result<Vec<Incident>>;
 }
-
-/// Severity re-export from common
-pub use rustops_common::Severity;
 
 #[cfg(test)]
 mod tests {
