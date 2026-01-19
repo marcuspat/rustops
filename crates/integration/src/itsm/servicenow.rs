@@ -31,7 +31,7 @@ pub struct ServiceNowConfig {
     pub username: Option<String>,
 
     /// Password for basic auth (fallback)
-    pub password: Option<String>},
+    pub password: Option<String>,
 }
 
 /// ServiceNow adapter
@@ -76,7 +76,7 @@ impl ServiceNowAdapter {
             headers.insert("Authorization".to_string(), format!("Bearer {}", token));
         } else if let (Some(username), Some(password)) = (&self.config.username, &self.config.password) {
             let auth = format!("{}:{}", username, password);
-            let encoded = base64::encode(&auth);
+            let encoded = std::base64::encode(auth);
             headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
         }
 

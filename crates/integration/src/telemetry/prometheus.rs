@@ -24,10 +24,10 @@ pub struct PrometheusConfig {
     pub username: Option<String>,
 
     /// Basic auth password (optional)
-    pub password: Option<String>},
+    pub password: Option<String>,
 
     /// Bearer token (optional)
-    pub bearer_token: Option<String>},
+    pub bearer_token: Option<String>,
 
     /// HTTP client timeout
     pub timeout: std::time::Duration,
@@ -67,19 +67,15 @@ impl PrometheusAdapter {
     where
         T: for<'de> serde::Deserialize<'de>,
     {
-        self.base.execute_with_resilience(|| {
-            let url = format!("{}{}", self.config.url.trim_end_matches('/'), endpoint);
-            let mut request = self.client.get(&url);
+        let url = format!("{}{}", self.config.url.trim_end_matches('/'), endpoint);
 
-            // Add auth
-            if let (Some(username), Some(password)) = (&self.config.username, &self.config.password) {
-                request = request.basic_auth(username, Some(password));
-            }
-            if let Some(token) = &self.config.bearer_token {
-                request = request.bearer_auth(token);
-            }
+        self.base.execute_with_resilience(move || {
+            let client = self.client.clone();
+            let url_clone = url.clone();
 
             async move {
+                let mut request = client.get(&url_clone);
+
                 request
                     .send()
                     .await

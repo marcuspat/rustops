@@ -2,10 +2,8 @@
 //
 // Implements retry with exponential backoff for transient failures
 
-use backoff::future::retry_notify;
-use backoff::ExponentialBackoff;
 use std::time::Duration;
-use tracing::{warn, Instrument};
+use tracing::{warn};
 
 /// Retry configuration
 #[derive(Debug, Clone)]
@@ -41,37 +39,63 @@ impl Default for RetryConfig {
 /// Execute operation with retry logic
 pub async fn retry_with_backoff<F, Fut, T, E>(
     config: RetryConfig,
-    operation: F,
+    mut operation: F,
 ) -> Result<T, E>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
     E: std::fmt::Display,
 {
-    let backoff = ExponentialBackoff {
-        initial_interval: config.initial_interval,
-        max_interval: config.max_interval,
-        multiplier: config.multiplier,
-        randomization_factor: config.randomization_factor,
-        ..Default::default()
-    };
-
     let mut attempt = 0;
-    let max_attempts = config.max_attempts;
+    let mut current_delay = config.initial_interval;
 
-    retry_notify(backoff, operation, |err, dur: Duration| {
+    loop {
         attempt += 1;
-        if attempt < max_attempts {
-            warn!(
-                error = %err,
-                retry_after = ?dur,
-                attempt = attempt,
-                max_attempts = max_attempts,
-                "Operation failed, retrying..."
-            );
+
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(err) if attempt >= config.max_attempts => {
+                warn!(
+                    error = %err,
+                    attempt = attempt,
+                    max_attempts = config.max_attempts,
+                    "Operation failed after all retry attempts"
+                );
+                return Err(err);
+            }
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    retry_after = ?current_delay,
+                    attempt = attempt,
+                    max_attempts = config.max_attempts,
+                    "Operation failed, retrying..."
+                );
+
+                tokio::time::sleep(current_delay).await;
+
+                // Calculate next delay with exponential backoff
+                current_delay = std::cmp::min(
+                    Duration::from_secs_f64(
+                        current_delay.as_secs_f64() * config.multiplier
+                    ),
+                    config.max_interval,
+                );
+
+                // Add simple jitter (50-100% of delay)
+                let jitter_ms = (current_delay.as_millis() as f64 * config.randomization_factor) as u64;
+                if jitter_ms > 0 {
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    let nanos = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .subsec_nanos() as u64;
+                    let jitter = Duration::from_millis(nanos % jitter_ms);
+                    current_delay = current_delay.saturating_add(jitter);
+                }
+            }
         }
-    })
-    .await
+    }
 }
 
 /// Execute operation with retry logic (simplified)

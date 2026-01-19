@@ -2,7 +2,6 @@
 //
 // Implements circuit breakers, rate limiting, and retry logic
 
-use crate::{IntegrationError, IntegrationResult};
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -39,6 +38,31 @@ pub enum IntegrationError {
 
     #[error("Unknown error: {0}")]
     Unknown(String),
+}
+
+// From implementations for common error types
+impl From<serde_json::Error> for IntegrationError {
+    fn from(err: serde_json::Error) -> Self {
+        IntegrationError::Serialization(err.to_string())
+    }
+}
+
+impl From<hyper::Error> for IntegrationError {
+    fn from(err: hyper::Error) -> Self {
+        IntegrationError::Network(err.to_string())
+    }
+}
+
+impl From<hyper::http::Error> for IntegrationError {
+    fn from(err: hyper::http::Error) -> Self {
+        IntegrationError::Network(err.to_string())
+    }
+}
+
+impl From<std::string::FromUtf8Error> for IntegrationError {
+    fn from(err: std::string::FromUtf8Error) -> Self {
+        IntegrationError::Deserialization(err.to_string())
+    }
 }
 
 /// Integration result type

@@ -4,6 +4,8 @@ members = [
     "crates/telemetry",
     "crates/anomaly",
     "crates/incident",
+    "crates/integration",
+    "crates/topology",
 ]
 resolver = "2"
 
@@ -48,9 +50,27 @@ petgraph = "0.6"
 # Metrics / Prometheus
 prometheus = { version = "0.13", features = ["process"] }
 
+# Kubernetes
+kube = { version = "0.87", features = ["runtime", "client", "derive"] }
+k8s-openapi = { version = "0.20", features = ["v1_28"] }
+
+# Graph database (Neo4j)
+neo4rs = "0.8"
+
+# HTTP/Async
+reqwest = { version = "0.11", features = ["json"] }
+hyper = { version = "0.14", features = ["client", "http1", "tcp"] }
+
+# Resilience
+backoff = "0.4"
+governor = { version = "0.6", features = ["std"] }
+tokio-retry = "0.3"
+
 # Testing
 proptest = "1.0"
 criterion = "0.4"
+mockito = "1.0"
+wiremock = "0.5"
 
 [profile.release]
 opt-level = 3

@@ -18,13 +18,19 @@ pub mod retry;
 pub mod telemetry;
 pub mod itsm;
 pub mod infrastructure;
+pub mod prometheus;
 
 // Re-exports
-pub use adapter::{IntegrationAdapter, TelemetryCollector, ITSMNotifier, InfrastructureMonitor};
+pub use adapter::{IntegrationAdapter, TelemetryCollector, ITSMNotifier, InfrastructureMonitor, TelemetryEvent};
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use rate_limiter::{RateLimiter, RateLimiterConfig};
 pub use retry::{RetryConfig, retry_with_backoff};
 pub use resilience::{IntegrationError, IntegrationResult, HealthStatus};
+pub use prometheus::{
+    PrometheusAdapter, PrometheusQuery, AlertRule, ServiceDiscoveryConfig, AlertEvaluation,
+    AlertStatus, ServiceTarget, KubernetesSDConfig, StaticTarget, RelabelConfig,
+    RelabelAction,
+};
 
 /// Integration kinds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
