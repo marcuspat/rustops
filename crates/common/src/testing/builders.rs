@@ -67,7 +67,7 @@ impl MetricBuilder {
             value: self.value,
             labels: self.labels,
             timestamp: self.timestamp.unwrap_or_else(|| {
-                chrono::Utc::now().timestamp()
+                chrono::Utc::now()
             }),
         }
     }
@@ -129,10 +129,7 @@ impl LogEntryBuilder {
             level: self.level,
             message: self.message,
             labels: self.labels,
-            timestamp: self.timestamp.unwrap_or_else(|| {
-                chrono::Utc::now().timestamp_nanos_opt()
-                    .unwrap_or_else(|| chrono::Utc::now().timestamp() * 1_000_000_000)
-            }),
+            timestamp: chrono::Utc::now(),
         }
     }
 }

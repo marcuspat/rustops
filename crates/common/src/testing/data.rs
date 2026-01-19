@@ -108,15 +108,16 @@ impl TestDataGenerator {
         labels
     }
 
-    fn random_timestamp(&mut self) -> i64 {
-        let now = chrono::Utc::now().timestamp();
-        now - self.rng.gen_range(0..86400) // Within last 24 hours
+    fn random_timestamp(&mut self) -> chrono::DateTime<chrono::Utc> {
+        let now = chrono::Utc::now();
+        let secs_ago = self.rng.gen_range(0..86400); // Within last 24 hours
+        now - chrono::Duration::seconds(secs_ago)
     }
 
-    fn random_timestamp_nanos(&mut self) -> i64 {
-        let now = chrono::Utc::now().timestamp_nanos_opt()
-            .unwrap_or_else(|| chrono::Utc::now().timestamp() * 1_000_000_000);
-        now - self.rng.gen_range(0..86400_000_000_000) // Within last 24 hours in nanos
+    fn random_timestamp_nanos(&mut self) -> chrono::DateTime<chrono::Utc> {
+        let now = chrono::Utc::now();
+        let nanos_ago = self.rng.gen_range(0..86400_000_000_000); // Within last 24 hours in nanos
+        now - chrono::Duration::nanoseconds(nanos_ago)
     }
 
     fn random_string(&mut self, range: std::ops::Range<usize>) -> String {

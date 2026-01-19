@@ -1,6 +1,11 @@
 //! # ONNX model management
 //!
 //! Loads and runs ONNX models for anomaly detection.
+//!
+//! Note: ONNX Runtime integration is currently disabled pending ort dependency resolution.
+//! The statistical detectors in `statistical.rs` provide full functionality.
+
+#![allow(dead_code)]
 
 use crate::detector::{Anomaly, AnomalyDetector, AnomalyType, DetectionResult, Result};
 use async_trait::async_trait;
@@ -12,9 +17,12 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 /// ONNX model wrapper
+///
+/// Note: Currently stubbed pending ort dependency. Enable ort in Cargo.toml to use.
+#[allow(dead_code)]
 pub struct ONNXModel {
-    /// ONNX Runtime session
-    session: ort::Session,
+    /// ONNX Runtime session (stub)
+    _session: (),  // Placeholder for ort::Session,
     /// Model name
     name: String,
     /// Model version
@@ -27,11 +35,23 @@ pub struct ONNXModel {
 
 impl ONNXModel {
     /// Load an ONNX model from a file
+    ///
+    /// Note: Currently stubbed. Enable ort dependency in Cargo.toml to use.
+    #[allow(dead_code, unused_variables)]
     pub async fn from_file(
         path: impl AsRef<Path>,
         name: impl Into<String>,
         version: impl Into<String>,
     ) -> Result<Self> {
+        // TODO: Enable when ort dependency is available
+        // This requires ort = "2.0" in Cargo.toml
+        Err(Error::ModelLoading {
+            model_name: name.into(),
+            message: "ONNX Runtime integration is currently disabled. \
+                      Uncomment ort dependency in Cargo.toml to enable.".to_string(),
+        })
+
+        /*
         let path = path.as_ref();
         info!("Loading ONNX model from: {}", path.display());
 
@@ -85,10 +105,21 @@ impl ONNXModel {
             input_name,
             output_name,
         })
+        */
     }
 
     /// Run inference on a batch of data
-    pub fn infer(&self, inputs: ArrayD<f32>) -> Result<Array2<f32>> {
+    ///
+    /// Note: Currently stubbed. Enable ort dependency in Cargo.toml to use.
+    #[allow(dead_code, unused_variables)]
+    pub fn infer(&self, _inputs: ArrayD<f32>) -> Result<Array2<f32>> {
+        Err(Error::ModelInference {
+            model_name: self.name.clone(),
+            message: "ONNX Runtime integration is currently disabled. \
+                      Uncomment ort dependency in Cargo.toml to enable.".to_string(),
+        })
+
+        /*
         // Run inference
         let outputs = self
             .session
@@ -116,6 +147,7 @@ impl ONNXModel {
         })?;
 
         Ok(array.into())
+        */
     }
 
     /// Get model name
@@ -301,9 +333,9 @@ mod tests {
 
     #[test]
     fn test_ml_detector_feature_preparation() {
+        // Create a stub model for testing feature preparation
         let model = Arc::new(ONNXModel {
-            // Mock model - would need real ONNX session for integration tests
-            session: unsafe { std::mem::zeroed() },
+            _session: (),
             name: "test".to_string(),
             version: "1.0".to_string(),
             input_name: "input".to_string(),
