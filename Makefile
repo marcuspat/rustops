@@ -1,6 +1,6 @@
 # RustOps Makefile
 
-.PHONY: help build test clean lint fmt docs dev-setup test-integration test-e2e test-property test-bench test-coverage docker-test-up docker-test-down
+.PHONY: help build test clean lint fmt docs dev-setup test-integration test-e2e test-property test-bench test-coverage docker-test-up docker-test-down docker-build-all docker-compose-up docker-compose-down docker-compose-logs
 
 # Default target
 .DEFAULT_GOAL := help
@@ -121,6 +121,45 @@ docker-test-down:
 ## docker-test-logs: Show test environment logs
 docker-test-logs:
 	docker-compose -f tests/docker-compose.yml logs -f
+
+# ============================================================================
+# Docker Deployment
+# ============================================================================
+
+## docker-build-all: Build all Docker images (api, agent, pipeline)
+docker-build-all:
+	@echo "$(BLUE)Building all Docker images...$(NC)"
+	@echo "$(GREEN)Building rustops-api...$(NC)"
+	docker build -t rustops-api:latest -f docker/Dockerfile.api .
+	@echo "$(GREEN)Building rustops-agent...$(NC)"
+	docker build -t rustops-agent:latest -f docker/Dockerfile.agent .
+	@echo "$(GREEN)Building rustops-pipeline...$(NC)"
+	docker build -t rustops-pipeline:latest -f docker/Dockerfile.pipeline .
+	@echo "$(GREEN)All Docker images built successfully!$(NC)"
+
+## docker-compose-up: Start all services with docker-compose
+docker-compose-up:
+	@echo "$(BLUE)Starting all services...$(NC)"
+	docker-compose up -d
+	@echo "$(YELLOW)Waiting for services to be healthy...$(NC)"
+	@timeout 180 bash -c 'until docker-compose ps | grep -q "healthy\|Up"; do sleep 2; done'
+	@echo "$(GREEN)All services started!$(NC)"
+	@echo "$(YELLOW)Run 'make docker-compose-logs' to view logs$(NC)"
+	@echo "$(YELLOW)Run 'make docker-compose-down' to stop services$(NC)"
+
+## docker-compose-down: Stop all services
+docker-compose-down:
+	@echo "$(BLUE)Stopping all services...$(NC)"
+	docker-compose down -v
+	@echo "$(GREEN)All services stopped!$(NC)"
+
+## docker-compose-logs: Show logs from all services
+docker-compose-logs:
+	docker-compose logs -f
+
+## docker-compose-ps: Show status of all services
+docker-compose-ps:
+	docker-compose ps
 
 # ============================================================================
 # Quality Gates

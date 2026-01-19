@@ -24,7 +24,6 @@ books/
 # Rust target
 target/
 **/target/
-Cargo.lock
 
 # Tests
 tests/
