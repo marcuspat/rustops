@@ -1,0 +1,110 @@
+# Prometheus configuration for RustOps monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'rustops'
+    environment: 'production'
+
+# Alertmanager configuration (not included in this stack but can be added)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Rule files
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # RustOps API instances
+  - job_name: 'rustops-api'
+    static_configs:
+      - targets:
+          - 'rustops-api:8080'
+        labels:
+          service: 'rustops-api'
+          tier: 'application'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'rustops-api'
+
+  # RustOps Agent instances
+  - job_name: 'rustops-agent'
+    static_configs:
+      - targets:
+          - 'rustops-agent:8081'
+        labels:
+          service: 'rustops-agent'
+          tier: 'application'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'rustops-agent'
+
+  # RustOps Pipeline instances
+  - job_name: 'rustops-pipeline'
+    static_configs:
+      - targets:
+          - 'rustops-pipeline:8082'
+        labels:
+          service: 'rustops-pipeline'
+          tier: 'application'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'rustops-pipeline'
+
+  # PostgreSQL metrics (requires postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+        labels:
+          service: 'postgres'
+          tier: 'infrastructure'
+
+  # Redis metrics (requires redis_exporter)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: 'redis'
+          tier: 'infrastructure'
+
+  # Kafka JMX metrics (requires jmx_exporter)
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+        labels:
+          service: 'kafka'
+          tier: 'infrastructure'
+
+  # Neo4j metrics
+  - job_name: 'neo4j'
+    static_configs:
+      - targets: ['neo4j:2004']
+        labels:
+          service: 'neo4j'
+          tier: 'infrastructure'
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          service: 'grafana'
+          tier: 'observability'
+
+# Remote write configuration (for external Prometheus/Thanos/Cortex)
+# remote_write:
+#   - url: "https://your-prometheus-remote-write-url/api/v1/write"

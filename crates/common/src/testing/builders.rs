@@ -1,7 +1,9 @@
 //! Test builders for creating test data.
 
 use crate::config::{AgentConfig, Config, PipelineConfig};
-use crate::telemetry::{LogEntry, Metric};
+use crate::telemetry::{LogEntry, LogLevel, Metric, MetricType};
+use crate::{MetricId, ServiceId};
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 /// Builder for creating [`Metric`] instances in tests.
@@ -10,7 +12,9 @@ pub struct MetricBuilder {
     name: String,
     value: f64,
     labels: HashMap<String, String>,
-    timestamp: Option<i64>,
+    timestamp: Option<DateTime<Utc>>,
+    metric_type: MetricType,
+    service_id: ServiceId,
 }
 
 impl Default for MetricBuilder {
@@ -27,6 +31,8 @@ impl MetricBuilder {
             value: 42.0,
             labels: HashMap::new(),
             timestamp: None,
+            metric_type: MetricType::Gauge,
+            service_id: ServiceId::new(),
         }
     }
 
@@ -55,18 +61,33 @@ impl MetricBuilder {
     }
 
     /// Sets the timestamp.
-    pub fn timestamp(mut self, ts: i64) -> Self {
+    pub fn timestamp(mut self, ts: DateTime<Utc>) -> Self {
         self.timestamp = Some(ts);
+        self
+    }
+
+    /// Sets the metric type.
+    pub fn metric_type(mut self, metric_type: MetricType) -> Self {
+        self.metric_type = metric_type;
+        self
+    }
+
+    /// Sets the service ID.
+    pub fn service_id(mut self, service_id: ServiceId) -> Self {
+        self.service_id = service_id;
         self
     }
 
     /// Builds the metric.
     pub fn build(self) -> Metric {
         Metric {
+            id: MetricId::new(),
             name: self.name,
+            metric_type: self.metric_type,
             value: self.value,
+            service_id: self.service_id,
             labels: self.labels,
-            timestamp: self.timestamp.unwrap_or_else(|| chrono::Utc::now()),
+            timestamp: self.timestamp.unwrap_or_else(Utc::now),
         }
     }
 }
@@ -74,10 +95,11 @@ impl MetricBuilder {
 /// Builder for creating [`LogEntry`] instances in tests.
 #[derive(Debug, Clone)]
 pub struct LogEntryBuilder {
-    level: String,
+    level: LogLevel,
     message: String,
     labels: HashMap<String, String>,
-    timestamp: Option<i64>,
+    timestamp: Option<DateTime<Utc>>,
+    service_id: ServiceId,
 }
 
 impl Default for LogEntryBuilder {
@@ -90,16 +112,17 @@ impl LogEntryBuilder {
     /// Creates a new builder with default values.
     pub fn new() -> Self {
         Self {
-            level: "INFO".to_string(),
+            level: LogLevel::Info,
             message: "test log message".to_string(),
             labels: HashMap::new(),
             timestamp: None,
+            service_id: ServiceId::new(),
         }
     }
 
     /// Sets the log level.
-    pub fn level(mut self, level: impl Into<String>) -> Self {
-        self.level = level.into();
+    pub fn level(mut self, level: LogLevel) -> Self {
+        self.level = level;
         self
     }
 
@@ -116,8 +139,14 @@ impl LogEntryBuilder {
     }
 
     /// Sets the timestamp.
-    pub fn timestamp(mut self, ts: i64) -> Self {
+    pub fn timestamp(mut self, ts: DateTime<Utc>) -> Self {
         self.timestamp = Some(ts);
+        self
+    }
+
+    /// Sets the service ID.
+    pub fn service_id(mut self, service_id: ServiceId) -> Self {
+        self.service_id = service_id;
         self
     }
 
@@ -126,8 +155,9 @@ impl LogEntryBuilder {
         LogEntry {
             level: self.level,
             message: self.message,
+            service_id: self.service_id,
             labels: self.labels,
-            timestamp: chrono::Utc::now(),
+            timestamp: self.timestamp.unwrap_or_else(Utc::now),
         }
     }
 }
@@ -199,17 +229,23 @@ mod tests {
         let mut labels = HashMap::new();
         labels.insert("host".to_string(), "server1".to_string());
 
+        let service_id = ServiceId::new();
+        let ts = Utc::now();
+
         let metric = MetricBuilder::new()
             .name("cpu_usage".to_string())
             .value(75.5)
             .labels(labels.clone())
-            .timestamp(1234567890)
+            .timestamp(ts)
+            .service_id(service_id)
+            .metric_type(MetricType::Gauge)
             .build();
 
         assert_eq!(metric.name, "cpu_usage");
         assert_eq!(metric.value, 75.5);
         assert_eq!(metric.labels, labels);
-        assert_eq!(metric.timestamp, 1234567890);
+        assert_eq!(metric.service_id, service_id);
+        assert_eq!(metric.metric_type, MetricType::Gauge);
     }
 
     #[test]
@@ -231,12 +267,12 @@ mod tests {
     #[test]
     fn test_log_entry_builder() {
         let log = LogEntryBuilder::new()
-            .level("ERROR".to_string())
+            .level(LogLevel::Error)
             .message("something went wrong".to_string())
             .label("service", "api")
             .build();
 
-        assert_eq!(log.level, "ERROR");
+        assert_eq!(log.level, LogLevel::Error);
         assert_eq!(log.message, "something went wrong");
         assert_eq!(log.labels.get("service"), Some(&"api".to_string()));
     }
