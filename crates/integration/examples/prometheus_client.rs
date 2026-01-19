@@ -7,16 +7,15 @@
 //! - Discover services
 //! - Collect telemetry data
 
+use chrono::{DateTime, Duration, Utc};
 use rustops_integration::{
+    adapter::{IntegrationAdapter, MetricQuery, TelemetryCollector, TelemetryEvent},
     prometheus::{
-        PrometheusAdapter, PrometheusQuery, AlertRule, ServiceDiscoveryConfig,
-        AlertEvaluation, AlertStatus, ServiceTarget, KubernetesSDConfig,
-        RelabelConfig, RelabelAction,
+        AlertEvaluation, AlertRule, AlertStatus, KubernetesSDConfig, PrometheusAdapter,
+        PrometheusQuery, RelabelAction, RelabelConfig, ServiceDiscoveryConfig, ServiceTarget,
     },
     CircuitBreakerConfig, RateLimiterConfig, RetryConfig,
-    adapter::{IntegrationAdapter, MetricQuery, TelemetryCollector, TelemetryEvent},
 };
-use chrono::{DateTime, Utc, Duration};
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -28,16 +27,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create Prometheus adapter with configuration
     let prometheus = PrometheusAdapter::new(
-        "rustops-prometheus", // Unique adapter ID
+        "rustops-prometheus",    // Unique adapter ID
         "http://localhost:9090", // Prometheus URL
-        None, // Basic auth (None for no auth)
+        None,                    // Basic auth (None for no auth)
         CircuitBreakerConfig {
             failure_threshold: 3,
             recovery_timeout: std::time::Duration::from_secs(10),
             expected_duration: std::time::Duration::from_secs(30),
         },
         RateLimiterConfig {
-            limit: 100, // 100 requests per window
+            limit: 100,                                 // 100 requests per window
             window: std::time::Duration::from_secs(60), // 60-second window
         },
         RetryConfig {
@@ -70,7 +69,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📊 Querying Prometheus metrics...");
     match prometheus.query_instant("up").await {
         Ok(response) => {
-            println!("✅ Query successful - Found {} metrics", response.data.result.len());
+            println!(
+                "✅ Query successful - Found {} metrics",
+                response.data.result.len()
+            );
             for metric in response.data.result {
                 println!("  - Metric: {:?}", metric.metric);
             }
@@ -83,12 +85,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = Utc::now() - Duration::minutes(5);
     let end = Utc::now();
 
-    match prometheus.query_range(
-        "prometheus_build_info",
-        start,
-        end,
-        "1m",
-    ).await {
+    match prometheus
+        .query_range("prometheus_build_info", start, end, "1m")
+        .await
+    {
         Ok(response) => {
             println!("✅ Range query successful");
             for metric in response.data.result {
@@ -118,13 +118,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             annotations: {
                 let mut annotations = HashMap::new();
                 annotations.insert("summary".to_string(), "Prometheus server down".to_string());
-                annotations.insert("description".to_string(), "Prometheus server has been down for more than 5 minutes".to_string());
+                annotations.insert(
+                    "description".to_string(),
+                    "Prometheus server has been down for more than 5 minutes".to_string(),
+                );
                 annotations
             },
         },
         AlertRule {
             name: "high_error_rate".to_string(),
-            expression: "rate(prometheus_http_requests_total{status=~\"5..\"}[5m]) > 0.1".to_string(),
+            expression: "rate(prometheus_http_requests_total{status=~\"5..\"}[5m]) > 0.1"
+                .to_string(),
             duration: "10m".to_string(),
             labels: {
                 let mut labels = HashMap::new();
@@ -174,27 +178,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             },
         ]),
-        relabel_configs: Some(vec![
-            RelabelConfig {
-                source_labels: vec!["__meta_kubernetes_pod_label_app".to_string()],
-                separator: Some("|".to_string()),
-                regex: None,
-                modulus: None,
-                replacement: "".to_string(),
-                action: RelabelAction::Keep,
-                target_label: None,
-            },
-        ]),
+        relabel_configs: Some(vec![RelabelConfig {
+            source_labels: vec!["__meta_kubernetes_pod_label_app".to_string()],
+            separator: Some("|".to_string()),
+            regex: None,
+            modulus: None,
+            replacement: "".to_string(),
+            action: RelabelAction::Keep,
+            target_label: None,
+        }]),
     };
 
     match prometheus.discover_services(&sd_config).await {
         Ok(targets) => {
             println!("✅ Discovered {} targets", targets.len());
             for target in targets {
-                println!("  - {}:{} Path: {}",
+                println!(
+                    "  - {}:{} Path: {}",
                     target.address,
                     target.port.as_ref().unwrap_or(&"9090".to_string()),
-                    target.metrics_path);
+                    target.metrics_path
+                );
                 if let Some(error) = target.error {
                     println!("    ⚠️  Error: {}", error);
                 }
@@ -217,7 +221,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(metrics) => {
             println!("✅ Collected {} metrics", metrics.len());
             for metric in metrics {
-                println!("  - {}: {} @ {:?}", metric.name, metric.value, metric.timestamp);
+                println!(
+                    "  - {}: {} @ {:?}",
+                    metric.name, metric.value, metric.timestamp
+                );
             }
         }
         Err(e) => println!("❌ Metrics collection failed: {}", e),
@@ -239,14 +246,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(event) = receiver.recv().await {
             match event {
                 TelemetryEvent::Metric(metric) => {
-                    println!("📊 Metric: {} = {} @ {}", metric.name, metric.value, metric.timestamp);
+                    println!(
+                        "📊 Metric: {} = {} @ {}",
+                        metric.name, metric.value, metric.timestamp
+                    );
                 }
                 TelemetryEvent::Alert(alert) => {
                     println!("🚨 Alert: {} - {:?}", alert.rule_name, alert.status);
                 }
             }
         }
-    }).await?;
+    })
+    .await?;
 
     println!("\n✅ Example completed successfully!");
     Ok(())

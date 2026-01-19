@@ -1,7 +1,7 @@
 //! Test builders for creating test data.
 
-use crate::telemetry::{LogEntry, Metric};
 use crate::config::{AgentConfig, Config, PipelineConfig};
+use crate::telemetry::{LogEntry, Metric};
 use std::collections::HashMap;
 
 /// Builder for creating [`Metric`] instances in tests.
@@ -66,9 +66,7 @@ impl MetricBuilder {
             name: self.name,
             value: self.value,
             labels: self.labels,
-            timestamp: self.timestamp.unwrap_or_else(|| {
-                chrono::Utc::now()
-            }),
+            timestamp: self.timestamp.unwrap_or_else(|| chrono::Utc::now()),
         }
     }
 }
@@ -175,7 +173,8 @@ impl ConfigBuilder {
                 collection_interval_seconds: self.agent_interval.unwrap_or(15),
             },
             pipeline: PipelineConfig {
-                kafka_brokers: self.kafka_brokers
+                kafka_brokers: self
+                    .kafka_brokers
                     .unwrap_or_else(|| vec!["localhost:9092".to_string()]),
             },
         }

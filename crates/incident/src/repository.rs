@@ -2,8 +2,8 @@
 //!
 //! Implements Command Query Responsibility Segregation.
 
-use crate::incident::{Incident, IncidentRepository, IncidentStatus};
 use crate::events::IncidentEvent;
+use crate::incident::{Incident, IncidentRepository, IncidentStatus};
 use rustops_common::{Error, IncidentId, Result, ServiceId};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -50,11 +50,7 @@ impl WriteModel {
     }
 
     /// Resolve an incident
-    pub async fn resolve_incident(
-        &self,
-        id: IncidentId,
-        resolution: String,
-    ) -> Result<Incident> {
+    pub async fn resolve_incident(&self, id: IncidentId, resolution: String) -> Result<Incident> {
         let mut incident = self
             .repository
             .get(id)
@@ -80,11 +76,7 @@ impl WriteModel {
     }
 
     /// Update root cause
-    pub async fn update_root_cause(
-        &self,
-        id: IncidentId,
-        root_cause: String,
-    ) -> Result<Incident> {
+    pub async fn update_root_cause(&self, id: IncidentId, root_cause: String) -> Result<Incident> {
         let mut incident = self
             .repository
             .get(id)
@@ -179,10 +171,7 @@ impl ReadModel {
     }
 
     /// List by service
-    pub async fn list_by_service(
-        &self,
-        service_id: ServiceId,
-    ) -> Result<Vec<IncidentProjection>> {
+    pub async fn list_by_service(&self, service_id: ServiceId) -> Result<Vec<IncidentProjection>> {
         let projections = self.projections.read().await;
         Ok(projections
             .values()
@@ -298,11 +287,7 @@ mod tests {
         let write_model = WriteModel::new(repo);
 
         let incident = write_model
-            .create_incident(
-                "Test incident".to_string(),
-                Severity::Major,
-                vec![],
-            )
+            .create_incident("Test incident".to_string(), Severity::Major, vec![])
             .await
             .unwrap();
 

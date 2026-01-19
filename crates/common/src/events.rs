@@ -214,12 +214,15 @@ impl DomainEvent {
     /// Create an event for testing
     #[cfg(test)]
     pub fn test_event(event_type: EventType) -> Self {
-        Self::new(event_type, EventPayload::MetricThresholdBreached {
-            metric_id: MetricId::new(),
-            threshold: 100.0,
-            actual_value: 150.0,
-            service_id: ServiceId::new(),
-        })
+        Self::new(
+            event_type,
+            EventPayload::MetricThresholdBreached {
+                metric_id: MetricId::new(),
+                threshold: 100.0,
+                actual_value: 150.0,
+                service_id: ServiceId::new(),
+            },
+        )
     }
 }
 

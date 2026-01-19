@@ -6,21 +6,12 @@
 pub mod builders;
 pub mod data;
 
-pub use builders::{
-    MetricBuilder,
-    LogEntryBuilder,
-    ConfigBuilder,
-};
-pub use data::{
-    TestDataGenerator,
-    FixtureLoader,
-};
+pub use builders::{ConfigBuilder, LogEntryBuilder, MetricBuilder};
+pub use data::{FixtureLoader, TestDataGenerator};
 
 /// Initialize tracing for tests.
 pub fn init_test_tracing() {
-    let _ = tracing_subscriber::fmt()
-        .with_test_writer()
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 }
 
 /// Creates a temporary directory for test files.
@@ -34,6 +25,8 @@ pub fn assert_approx_eq(a: f64, b: f64, epsilon: f64) {
     assert!(
         diff <= epsilon,
         "Values not approximately equal: {} vs {} (diff: {})",
-        a, b, diff
+        a,
+        b,
+        diff
     );
 }

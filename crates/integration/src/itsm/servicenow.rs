@@ -9,10 +9,10 @@ use std::collections::HashMap;
 use tracing::{debug, error, info};
 
 use crate::adapter::{
-    BaseAdapter, ITSMNotifier, IntegrationKind,
-    Incident, IncidentSeverity, IncidentStatus, IncidentUpdate, CMDBSyncResult,
+    BaseAdapter, CMDBSyncResult, ITSMNotifier, Incident, IncidentSeverity, IncidentStatus,
+    IncidentUpdate, IntegrationKind,
 };
-use crate::resilience::{IntegrationError, IntegrationResult, HealthStatus};
+use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
 use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 
 /// ServiceNow adapter configuration
@@ -74,7 +74,9 @@ impl ServiceNowAdapter {
 
         if let Some(token) = &self.access_token {
             headers.insert("Authorization".to_string(), format!("Bearer {}", token));
-        } else if let (Some(username), Some(password)) = (&self.config.username, &self.config.password) {
+        } else if let (Some(username), Some(password)) =
+            (&self.config.username, &self.config.password)
+        {
             let auth = format!("{}:{}", username, password);
             let encoded = base64::encode(auth);
             headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
@@ -95,7 +97,10 @@ impl ITSMNotifier for ServiceNowAdapter {
     async fn create_incident(&self, incident: Incident) -> IntegrationResult<String> {
         info!("Creating ServiceNow incident: {}", incident.title);
 
-        let url = format!("{}/api/now/table/incident", self.config.instance_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/now/table/incident",
+            self.config.instance_url.trim_end_matches('/')
+        );
 
         let payload = CreateIncidentRequest {
             short_description: incident.title.clone(),
@@ -149,7 +154,11 @@ impl ITSMNotifier for ServiceNowAdapter {
     async fn update_incident(&self, id: &str, update: IncidentUpdate) -> IntegrationResult<()> {
         debug!("Updating ServiceNow incident: {}", id);
 
-        let url = format!("{}/api/now/table/incident/{}", self.config.instance_url.trim_end_matches('/'), id);
+        let url = format!(
+            "{}/api/now/table/incident/{}",
+            self.config.instance_url.trim_end_matches('/'),
+            id
+        );
 
         let mut payload = HashMap::new();
         if let Some(status) = update.status {
@@ -192,36 +201,41 @@ impl ITSMNotifier for ServiceNowAdapter {
     }
 
     async fn get_incident(&self, id: &str) -> IntegrationResult<Incident> {
-        let url = format!("{}/api/now/table/incident/{}", self.config.instance_url.trim_end_matches('/'), id);
+        let url = format!(
+            "{}/api/now/table/incident/{}",
+            self.config.instance_url.trim_end_matches('/'),
+            id
+        );
 
         let base = self.base.clone();
         let client = self.client.clone();
         let headers = self.auth_headers().unwrap_or_default();
 
-        let response: ServiceNowResponse = base.execute_with_resilience(move || {
-            let client = client.clone();
-            let url = url.clone();
-            let headers = headers.clone();
-            async move {
-                let response = client
-                    .get(&url)
-                    .headers(try_into_headers(headers)?)
-                    .send()
-                    .await
-                    .map_err(|e| IntegrationError::Network(e.to_string()))?;
-
-                if response.status().is_success() {
-                    response
-                        .json()
+        let response: ServiceNowResponse = base
+            .execute_with_resilience(move || {
+                let client = client.clone();
+                let url = url.clone();
+                let headers = headers.clone();
+                async move {
+                    let response = client
+                        .get(&url)
+                        .headers(try_into_headers(headers)?)
+                        .send()
                         .await
-                        .map_err(|e| IntegrationError::Deserialization(e.to_string()))
-                } else {
-                    let error_text = response.text().await.unwrap_or_default();
-                    Err(IntegrationError::ServiceUnavailable(error_text))
+                        .map_err(|e| IntegrationError::Network(e.to_string()))?;
+
+                    if response.status().is_success() {
+                        response
+                            .json()
+                            .await
+                            .map_err(|e| IntegrationError::Deserialization(e.to_string()))
+                    } else {
+                        let error_text = response.text().await.unwrap_or_default();
+                        Err(IntegrationError::ServiceUnavailable(error_text))
+                    }
                 }
-            }
-        })
-        .await?;
+            })
+            .await?;
 
         Ok(incident_from_response(response.result))
     }
@@ -251,32 +265,38 @@ impl crate::adapter::IntegrationAdapter for ServiceNowAdapter {
     }
 
     async fn health_check(&self) -> IntegrationResult<HealthStatus> {
-        let url = format!("{}/api/now/table/sys_properties", self.config.instance_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/now/table/sys_properties",
+            self.config.instance_url.trim_end_matches('/')
+        );
 
         let base = self.base.clone();
         let client = self.client.clone();
         let headers = self.auth_headers().unwrap_or_default();
 
-        match base.execute_with_resilience(move || {
-            let client = client.clone();
-            let url = url.clone();
-            let headers = headers.clone();
-            async move {
-                let response = client
-                    .head(&url)
-                    .headers(try_into_headers(headers)?)
-                    .send()
-                    .await
-                    .map_err(|e| IntegrationError::Network(e.to_string()))?;
+        match base
+            .execute_with_resilience(move || {
+                let client = client.clone();
+                let url = url.clone();
+                let headers = headers.clone();
+                async move {
+                    let response = client
+                        .head(&url)
+                        .headers(try_into_headers(headers)?)
+                        .send()
+                        .await
+                        .map_err(|e| IntegrationError::Network(e.to_string()))?;
 
-                if response.status().is_success() {
-                    Ok(())
-                } else {
-                    Err(IntegrationError::Authentication("Health check failed".to_string()))
+                    if response.status().is_success() {
+                        Ok(())
+                    } else {
+                        Err(IntegrationError::Authentication(
+                            "Health check failed".to_string(),
+                        ))
+                    }
                 }
-            }
-        })
-        .await
+            })
+            .await
         {
             Ok(_) => Ok(HealthStatus::Healthy),
             Err(_) => Ok(HealthStatus::Unhealthy),
@@ -284,7 +304,10 @@ impl crate::adapter::IntegrationAdapter for ServiceNowAdapter {
     }
 
     async fn initialize(&mut self) -> IntegrationResult<()> {
-        info!("Initializing ServiceNow adapter: {}", self.config.instance_url);
+        info!(
+            "Initializing ServiceNow adapter: {}",
+            self.config.instance_url
+        );
         self.refresh_token().await?;
         self.health_check().await?;
         Ok(())
@@ -366,7 +389,9 @@ fn state_to_status(state: String) -> IncidentStatus {
     }
 }
 
-fn try_into_headers(map: HashMap<String, String>) -> Result<reqwest::header::HeaderMap, IntegrationError> {
+fn try_into_headers(
+    map: HashMap<String, String>,
+) -> Result<reqwest::header::HeaderMap, IntegrationError> {
     let mut headers = reqwest::header::HeaderMap::new();
     for (k, v) in map {
         let key = reqwest::header::HeaderName::from_bytes(k.as_bytes())

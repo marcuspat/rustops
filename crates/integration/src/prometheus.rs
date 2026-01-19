@@ -4,14 +4,14 @@
 //! Supports both pull mode (scraping) and push mode (remote write).
 
 use crate::adapter::{self, IntegrationAdapter, TelemetryCollector};
-use crate::resilience::{IntegrationError, IntegrationResult, HealthStatus};
+use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
 use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use hyper::body::Bytes;
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
 use hyper::http::HeaderValue;
-use hyper::{Client, Request, Method, Body};
+use hyper::{Body, Client, Method, Request};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -123,10 +123,19 @@ impl PrometheusAdapter {
     ) -> Self {
         let base_url = base_url.into();
         let mut headers = HashMap::new();
-        headers.insert("User-Agent".to_string(), "rustops-integration/1.0".to_string());
+        headers.insert(
+            "User-Agent".to_string(),
+            "rustops-integration/1.0".to_string(),
+        );
 
         Self {
-            base: adapter::BaseAdapter::new(id, adapter::IntegrationKind::TelemetryCollector, circuit_breaker_config, rate_limiter_config, retry_config),
+            base: adapter::BaseAdapter::new(
+                id,
+                adapter::IntegrationKind::TelemetryCollector,
+                circuit_breaker_config,
+                rate_limiter_config,
+                retry_config,
+            ),
             client: Client::new(),
             base_url,
             auth: auth.map(|(u, p)| (u.into(), p.into())),
@@ -140,12 +149,13 @@ impl PrometheusAdapter {
     }
 
     /// Execute a Prometheus query
-    async fn execute_query(&self, query: &PrometheusQuery) -> IntegrationResult<PrometheusResponse> {
+    async fn execute_query(
+        &self,
+        query: &PrometheusQuery,
+    ) -> IntegrationResult<PrometheusResponse> {
         let url = format!("{}/api/v1/query", self.base_url);
 
-        let mut params = vec![
-            ("query", query.query.clone()),
-        ];
+        let mut params = vec![("query", query.query.clone())];
 
         if let Some(start_time) = query.start_time {
             params.push(("start", start_time.timestamp().to_string()));
@@ -176,24 +186,36 @@ impl PrometheusAdapter {
                     .method(Method::GET)
                     .uri(&url)
                     .header(CONTENT_TYPE, "application/json")
-                    .body(Body::from(serde_json::to_vec(&params).map_err(|e| IntegrationError::Unknown(e.to_string()))?))?;
+                    .body(Body::from(
+                        serde_json::to_vec(&params)
+                            .map_err(|e| IntegrationError::Unknown(e.to_string()))?,
+                    ))?;
 
                 let response = client.request(request).await?;
 
                 if !response.status().is_success() {
-                    return Err(IntegrationError::Network(format!("HTTP {}: {}", response.status(), response.status().canonical_reason().unwrap_or(""))));
+                    return Err(IntegrationError::Network(format!(
+                        "HTTP {}: {}",
+                        response.status(),
+                        response.status().canonical_reason().unwrap_or("")
+                    )));
                 }
 
                 let body = hyper::body::to_bytes(response.into_body()).await?;
                 let response: PrometheusResponse = serde_json::from_slice(&body)?;
 
                 if response.status != "success" {
-                    return Err(IntegrationError::Unknown(response.error.unwrap_or_else(|| "Unknown query error".to_string())));
+                    return Err(IntegrationError::Unknown(
+                        response
+                            .error
+                            .unwrap_or_else(|| "Unknown query error".to_string()),
+                    ));
                 }
 
                 Ok(response)
             }
-        }).await
+        })
+        .await
     }
 
     /// Execute a range query
@@ -229,7 +251,10 @@ impl PrometheusAdapter {
     }
 
     /// Evaluate alert rules
-    pub async fn evaluate_alerts(&self, rules: &[AlertRule]) -> IntegrationResult<Vec<AlertEvaluation>> {
+    pub async fn evaluate_alerts(
+        &self,
+        rules: &[AlertRule],
+    ) -> IntegrationResult<Vec<AlertEvaluation>> {
         let mut evaluations = Vec::new();
 
         for rule in rules {
@@ -266,7 +291,10 @@ impl PrometheusAdapter {
     }
 
     /// Discover services using Prometheus service discovery
-    pub async fn discover_services(&self, config: &ServiceDiscoveryConfig) -> IntegrationResult<Vec<ServiceTarget>> {
+    pub async fn discover_services(
+        &self,
+        config: &ServiceDiscoveryConfig,
+    ) -> IntegrationResult<Vec<ServiceTarget>> {
         // For now, implement basic static config discovery
         // In a full implementation, this would integrate with Prometheus SD mechanisms
         let mut targets = Vec::new();
@@ -316,13 +344,18 @@ impl PrometheusAdapter {
                 let response = client.request(request).await?;
 
                 if !response.status().is_success() {
-                    return Err(IntegrationError::Network(format!("HTTP {}: {}", response.status(), response.status().canonical_reason().unwrap_or(""))));
+                    return Err(IntegrationError::Network(format!(
+                        "HTTP {}: {}",
+                        response.status(),
+                        response.status().canonical_reason().unwrap_or("")
+                    )));
                 }
 
                 let body = hyper::body::to_bytes(response.into_body()).await?;
                 Ok(String::from_utf8(body.to_vec())?)
             }
-        }).await
+        })
+        .await
     }
 
     /// Get series metadata
@@ -348,19 +381,28 @@ impl PrometheusAdapter {
                 let response = client.request(request).await?;
 
                 if !response.status().is_success() {
-                    return Err(IntegrationError::Network(format!("HTTP {}: {}", response.status(), response.status().canonical_reason().unwrap_or(""))));
+                    return Err(IntegrationError::Network(format!(
+                        "HTTP {}: {}",
+                        response.status(),
+                        response.status().canonical_reason().unwrap_or("")
+                    )));
                 }
 
                 let body = hyper::body::to_bytes(response.into_body()).await?;
                 let response: LabelNamesResponse = serde_json::from_slice(&body)?;
 
                 if response.status != "success" {
-                    return Err(IntegrationError::Unknown(response.error.unwrap_or_else(|| "Failed to get label names".to_string())));
+                    return Err(IntegrationError::Unknown(
+                        response
+                            .error
+                            .unwrap_or_else(|| "Failed to get label names".to_string()),
+                    ));
                 }
 
                 Ok(response.data)
             }
-        }).await
+        })
+        .await
     }
 }
 
@@ -395,7 +437,7 @@ impl IntegrationAdapter for PrometheusAdapter {
                 Ok(())
             }
             _ => Err(IntegrationError::ServiceUnavailable(
-                "prometheus".to_string()
+                "prometheus".to_string(),
             )),
         }
     }
@@ -408,14 +450,18 @@ impl IntegrationAdapter for PrometheusAdapter {
 
 #[async_trait]
 impl TelemetryCollector for PrometheusAdapter {
-    async fn collect_metrics(&self, query: adapter::MetricQuery) -> IntegrationResult<Vec<adapter::Metric>> {
+    async fn collect_metrics(
+        &self,
+        query: adapter::MetricQuery,
+    ) -> IntegrationResult<Vec<adapter::Metric>> {
         let prometheus_query = if query.step.is_some() {
             self.query_range(
                 &query.metric_name,
                 query.start_time,
                 query.end_time,
                 &query.step.unwrap().to_string(),
-            ).await?
+            )
+            .await?
         } else {
             self.query_instant(&query.metric_name).await?
         };
@@ -428,8 +474,11 @@ impl TelemetryCollector for PrometheusAdapter {
 
             if let Some(values) = result.values {
                 for value_pair in values {
-                    let timestamp = DateTime::<Utc>::from_timestamp((value_pair[1].as_u64().unwrap_or(0) / 1000) as i64, 0)
-                        .unwrap_or(Utc::now());
+                    let timestamp = DateTime::<Utc>::from_timestamp(
+                        (value_pair[1].as_u64().unwrap_or(0) / 1000) as i64,
+                        0,
+                    )
+                    .unwrap_or(Utc::now());
 
                     metrics.push(adapter::Metric {
                         name: query.metric_name.clone(),
@@ -439,8 +488,11 @@ impl TelemetryCollector for PrometheusAdapter {
                     });
                 }
             } else if let Some(value) = result.value {
-                let timestamp = DateTime::<Utc>::from_timestamp((value[1].as_u64().unwrap_or(0) / 1000) as i64, 0)
-                    .unwrap_or(Utc::now());
+                let timestamp = DateTime::<Utc>::from_timestamp(
+                    (value[1].as_u64().unwrap_or(0) / 1000) as i64,
+                    0,
+                )
+                .unwrap_or(Utc::now());
 
                 metrics.push(adapter::Metric {
                     name: query.metric_name.clone(),
@@ -454,7 +506,10 @@ impl TelemetryCollector for PrometheusAdapter {
         Ok(metrics)
     }
 
-    async fn collect_logs(&self, _query: adapter::LogQuery) -> IntegrationResult<adapter::LogStream> {
+    async fn collect_logs(
+        &self,
+        _query: adapter::LogQuery,
+    ) -> IntegrationResult<adapter::LogStream> {
         // Prometheus doesn't support log collection
         tracing::warn!("Log collection is not supported by Prometheus");
         Ok(adapter::LogStream {
@@ -463,7 +518,10 @@ impl TelemetryCollector for PrometheusAdapter {
         })
     }
 
-    async fn collect_traces(&self, _query: adapter::TraceQuery) -> IntegrationResult<Vec<adapter::Trace>> {
+    async fn collect_traces(
+        &self,
+        _query: adapter::TraceQuery,
+    ) -> IntegrationResult<Vec<adapter::Trace>> {
         // Prometheus doesn't support trace collection
         tracing::warn!("Trace collection is not supported by Prometheus");
         Ok(Vec::new())
@@ -569,7 +627,10 @@ mod tests {
         );
 
         assert_eq!(adapter.id(), "test-prometheus");
-        assert!(matches!(adapter.kind(), adapter::IntegrationKind::TelemetryCollector));
+        assert!(matches!(
+            adapter.kind(),
+            adapter::IntegrationKind::TelemetryCollector
+        ));
     }
 
     #[tokio::test]
@@ -603,12 +664,7 @@ mod tests {
         let end = Utc::now();
 
         // This will test the query construction (may fail due to no server)
-        let _ = adapter.query_range(
-            "up",
-            start,
-            end,
-            "15s",
-        ).await;
+        let _ = adapter.query_range("up", start, end, "15s").await;
     }
 
     #[tokio::test]
@@ -622,15 +678,13 @@ mod tests {
             RetryConfig::default(),
         );
 
-        let rules = vec![
-            AlertRule {
-                name: "high_cpu".to_string(),
-                expression: "process_cpu_seconds_total > 0.8".to_string(),
-                duration: "5m".to_string(),
-                labels: HashMap::new(),
-                annotations: HashMap::new(),
-            }
-        ];
+        let rules = vec![AlertRule {
+            name: "high_cpu".to_string(),
+            expression: "process_cpu_seconds_total > 0.8".to_string(),
+            duration: "5m".to_string(),
+            labels: HashMap::new(),
+            annotations: HashMap::new(),
+        }];
 
         let _ = adapter.evaluate_alerts(&rules).await;
     }

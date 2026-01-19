@@ -4,8 +4,8 @@
 
 use crate::events::IncidentEvent;
 use chrono::{DateTime, Utc};
-use rustops_common::{AlertId, IncidentId, Result, ServiceId};
 use rustops_common::events::Severity;
+use rustops_common::{AlertId, IncidentId, Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -55,11 +55,7 @@ pub struct Incident {
 
 impl Incident {
     /// Create a new incident
-    pub fn new(
-        title: impl Into<String>,
-        severity: Severity,
-        alert_ids: Vec<AlertId>,
-    ) -> Self {
+    pub fn new(title: impl Into<String>, severity: Severity, alert_ids: Vec<AlertId>) -> Self {
         let now = Utc::now();
         Self {
             id: IncidentId::new(),
@@ -122,9 +118,7 @@ impl Incident {
     pub fn is_active(&self) -> bool {
         matches!(
             self.status,
-            IncidentStatus::Open
-                | IncidentStatus::Acknowledged
-                | IncidentStatus::Investigating
+            IncidentStatus::Open | IncidentStatus::Acknowledged | IncidentStatus::Investigating
         )
     }
 
@@ -226,7 +220,10 @@ mod tests {
         incident.resolve("Fixed the database connection");
 
         assert_eq!(incident.status, IncidentStatus::Resolved);
-        assert_eq!(incident.resolution, Some("Fixed the database connection".to_string()));
+        assert_eq!(
+            incident.resolution,
+            Some("Fixed the database connection".to_string())
+        );
         assert!(incident.resolved_at.is_some());
         assert!(!incident.is_active());
     }

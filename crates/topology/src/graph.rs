@@ -5,18 +5,17 @@
 
 use crate::{
     events::{TopologyEvent, TopologyEventStore},
-    model::{ServiceNode, DependencyEdge, ServiceType, HealthStatus, DependencyType},
+    model::{DependencyEdge, DependencyType, HealthStatus, ServiceNode, ServiceType},
     // Re-export these types from model for convenience
     // Note: ServiceType, HealthStatus, DependencyType, Protocol are defined in model.rs
 };
 use petgraph::{
-    Graph,
-    Directed,
+    algo::{astar, dijkstra},
     stable_graph::NodeIndex,
-    algo::{dijkstra, astar},
-    visit::{Dfs, Walker, EdgeRef},
+    visit::{Dfs, EdgeRef, Walker},
+    Directed, Graph,
 };
-use rustops_common::{ServiceId, Result};
+use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use tracing::{debug, info, warn};
@@ -85,7 +84,10 @@ impl ServiceGraph {
             store.store_event(event)?;
         }
 
-        info!("Added/updated service: {}", service.name.as_deref().unwrap_or("<unnamed>"));
+        info!(
+            "Added/updated service: {}",
+            service.name.as_deref().unwrap_or("<unnamed>")
+        );
         Ok(())
     }
 
@@ -120,24 +122,38 @@ impl ServiceGraph {
     }
 
     /// Add a dependency edge between services
-    pub fn add_dependency(&mut self, from: ServiceId, to: ServiceId, edge: DependencyEdge) -> Result<()> {
+    pub fn add_dependency(
+        &mut self,
+        from: ServiceId,
+        to: ServiceId,
+        edge: DependencyEdge,
+    ) -> Result<()> {
         // Ensure both services exist
-        let from_index = *self.service_index.get(&from)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: from.to_string(),
-            })?;
-        let to_index = *self.service_index.get(&to)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: to.to_string(),
-            })?;
+        let from_index =
+            *self
+                .service_index
+                .get(&from)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: from.to_string(),
+                })?;
+        let to_index =
+            *self
+                .service_index
+                .get(&to)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: to.to_string(),
+                })?;
 
         // Check if edge already exists
         let edge_exists = {
             let mut found = false;
             // Walk the outgoing edges and check each one
-            for edge_ref in self.graph.edges_directed(from_index, petgraph::Direction::Outgoing) {
+            for edge_ref in self
+                .graph
+                .edges_directed(from_index, petgraph::Direction::Outgoing)
+            {
                 if let Some((_, target)) = self.graph.edge_endpoints(edge_ref.id()) {
                     if target == to_index {
                         let edge_weight = edge_ref.weight();
@@ -175,21 +191,35 @@ impl ServiceGraph {
     }
 
     /// Remove a dependency edge
-    pub fn remove_dependency(&mut self, from: ServiceId, to: ServiceId, edge_type: DependencyType) -> Result<()> {
-        let from_index = *self.service_index.get(&from)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: from.to_string(),
-            })?;
-        let to_index = *self.service_index.get(&to)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: to.to_string(),
-            })?;
+    pub fn remove_dependency(
+        &mut self,
+        from: ServiceId,
+        to: ServiceId,
+        edge_type: DependencyType,
+    ) -> Result<()> {
+        let from_index =
+            *self
+                .service_index
+                .get(&from)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: from.to_string(),
+                })?;
+        let to_index =
+            *self
+                .service_index
+                .get(&to)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: to.to_string(),
+                })?;
 
         // Find and remove the edge
         let mut edges_to_remove = Vec::new();
-        for edge_ref in self.graph.edges_directed(from_index, petgraph::Direction::Outgoing) {
+        for edge_ref in self
+            .graph
+            .edges_directed(from_index, petgraph::Direction::Outgoing)
+        {
             if let Some((_, target)) = self.graph.edge_endpoints(edge_ref.id()) {
                 if target == to_index {
                     let edge_weight = edge_ref.weight();
@@ -220,11 +250,14 @@ impl ServiceGraph {
 
     /// Find all services that depend on the given service (upstream dependencies)
     pub fn find_upstream_dependencies(&self, service_id: &ServiceId) -> Result<Vec<ServiceNode>> {
-        let start_index = *self.service_index.get(service_id)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: service_id.to_string(),
-            })?;
+        let start_index =
+            *self
+                .service_index
+                .get(service_id)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: service_id.to_string(),
+                })?;
 
         let mut upstream = Vec::new();
         let mut dfs = Dfs::new(&self.graph, start_index);
@@ -242,11 +275,14 @@ impl ServiceGraph {
 
     /// Find all services that the given service depends on (downstream dependencies)
     pub fn find_downstream_dependencies(&self, service_id: &ServiceId) -> Result<Vec<ServiceNode>> {
-        let start_index = *self.service_index.get(service_id)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: service_id.to_string(),
-            })?;
+        let start_index =
+            *self
+                .service_index
+                .get(service_id)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: service_id.to_string(),
+                })?;
 
         let mut downstream = Vec::new();
         let mut dfs = Dfs::new(&self.graph, start_index);
@@ -263,12 +299,19 @@ impl ServiceGraph {
     }
 
     /// Calculate blast radius for a service
-    pub fn calculate_blast_radius(&self, service_id: &ServiceId, max_hops: usize) -> Result<BlastRadius> {
-        let start_index = *self.service_index.get(service_id)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: service_id.to_string(),
-            })?;
+    pub fn calculate_blast_radius(
+        &self,
+        service_id: &ServiceId,
+        max_hops: usize,
+    ) -> Result<BlastRadius> {
+        let start_index =
+            *self
+                .service_index
+                .get(service_id)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: service_id.to_string(),
+                })?;
 
         let mut affected_services = HashSet::new();
         let mut total_paths = 0;
@@ -291,7 +334,10 @@ impl ServiceGraph {
             }
 
             // Add neighbors to queue
-            for edge_ref in self.graph.edges_directed(node_index, petgraph::Direction::Outgoing) {
+            for edge_ref in self
+                .graph
+                .edges_directed(node_index, petgraph::Direction::Outgoing)
+            {
                 let next_hops = hops + 1;
                 if next_hops <= max_hops {
                     if let Some((_, target)) = self.graph.edge_endpoints(edge_ref.id()) {
@@ -303,7 +349,8 @@ impl ServiceGraph {
 
         // Calculate blast radius score based on number of affected services and criticality
         let blast_radius_score = affected_services.len() as f64;
-        let critical_affected = affected_services.iter()
+        let critical_affected = affected_services
+            .iter()
             .filter(|id| self.get_service_criticality(id))
             .count();
         let total_affected = affected_services.len();
@@ -319,17 +366,27 @@ impl ServiceGraph {
     }
 
     /// Find the shortest path between two services
-    pub fn find_shortest_path(&self, from: &ServiceId, to: &ServiceId) -> Result<Option<Vec<ServiceNode>>> {
-        let from_index = *self.service_index.get(from)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: from.to_string(),
-            })?;
-        let to_index = *self.service_index.get(to)
-            .ok_or_else(|| rustops_common::Error::NotFound {
-                resource: "service".to_string(),
-                identifier: to.to_string(),
-            })?;
+    pub fn find_shortest_path(
+        &self,
+        from: &ServiceId,
+        to: &ServiceId,
+    ) -> Result<Option<Vec<ServiceNode>>> {
+        let from_index =
+            *self
+                .service_index
+                .get(from)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: from.to_string(),
+                })?;
+        let to_index =
+            *self
+                .service_index
+                .get(to)
+                .ok_or_else(|| rustops_common::Error::NotFound {
+                    resource: "service".to_string(),
+                    identifier: to.to_string(),
+                })?;
 
         // Use Dijkstra's algorithm to find if path exists
         let result = dijkstra(&self.graph, from_index, Some(to_index), |_| 1);
@@ -464,8 +521,8 @@ pub struct BlastRadius {
 mod tests {
     use super::*;
     use crate::model::ServiceNode;
-    use rustops_common::ServiceId;
     use chrono::Utc;
+    use rustops_common::ServiceId;
 
     fn create_test_service(id: ServiceId, name: impl Into<String>) -> ServiceNode {
         let now = Utc::now();
@@ -501,8 +558,12 @@ mod tests {
         let service_a = ServiceId::new();
         let service_b = ServiceId::new();
 
-        graph.add_service(create_test_service(service_a, "service-a")).unwrap();
-        graph.add_service(create_test_service(service_b, "service-b")).unwrap();
+        graph
+            .add_service(create_test_service(service_a, "service-a"))
+            .unwrap();
+        graph
+            .add_service(create_test_service(service_b, "service-b"))
+            .unwrap();
 
         let edge = DependencyEdge {
             from: service_a,
@@ -522,13 +583,31 @@ mod tests {
         let service_b = ServiceId::new();
         let service_c = ServiceId::new();
 
-        graph.add_service(create_test_service(service_a, "service-a")).unwrap();
-        graph.add_service(create_test_service(service_b, "service-b")).unwrap();
-        graph.add_service(create_test_service(service_c, "service-c")).unwrap();
+        graph
+            .add_service(create_test_service(service_a, "service-a"))
+            .unwrap();
+        graph
+            .add_service(create_test_service(service_b, "service-b"))
+            .unwrap();
+        graph
+            .add_service(create_test_service(service_c, "service-c"))
+            .unwrap();
 
         // A -> B -> C
-        graph.add_dependency(service_a, service_b, create_dependency_edge(DependencyType::Calls)).unwrap();
-        graph.add_dependency(service_b, service_c, create_dependency_edge(DependencyType::Calls)).unwrap();
+        graph
+            .add_dependency(
+                service_a,
+                service_b,
+                create_dependency_edge(DependencyType::Calls),
+            )
+            .unwrap();
+        graph
+            .add_dependency(
+                service_b,
+                service_c,
+                create_dependency_edge(DependencyType::Calls),
+            )
+            .unwrap();
 
         // Downstream from A should be B and C
         let downstream = graph.find_downstream_dependencies(&service_a).unwrap();
@@ -550,13 +629,31 @@ mod tests {
         let service_api = ServiceId::new();
         let service_frontend = ServiceId::new();
 
-        graph.add_service(create_test_service(service_db, "database")).unwrap();
-        graph.add_service(create_test_service(service_api, "api")).unwrap();
-        graph.add_service(create_test_service(service_frontend, "frontend")).unwrap();
+        graph
+            .add_service(create_test_service(service_db, "database"))
+            .unwrap();
+        graph
+            .add_service(create_test_service(service_api, "api"))
+            .unwrap();
+        graph
+            .add_service(create_test_service(service_frontend, "frontend"))
+            .unwrap();
 
         // Frontend -> API -> Database
-        graph.add_dependency(service_frontend, service_api, create_dependency_edge(DependencyType::Calls)).unwrap();
-        graph.add_dependency(service_api, service_db, create_dependency_edge(DependencyType::Calls)).unwrap();
+        graph
+            .add_dependency(
+                service_frontend,
+                service_api,
+                create_dependency_edge(DependencyType::Calls),
+            )
+            .unwrap();
+        graph
+            .add_dependency(
+                service_api,
+                service_db,
+                create_dependency_edge(DependencyType::Calls),
+            )
+            .unwrap();
 
         let radius = graph.calculate_blast_radius(&service_db, 5).unwrap();
         assert_eq!(radius.total_affected_services, 2);
@@ -571,13 +668,31 @@ mod tests {
         let service_b = ServiceId::new();
         let service_c = ServiceId::new();
 
-        graph.add_service(create_test_service(service_a, "service-a")).unwrap();
-        graph.add_service(create_test_service(service_b, "service-b")).unwrap();
-        graph.add_service(create_test_service(service_c, "service-c")).unwrap();
+        graph
+            .add_service(create_test_service(service_a, "service-a"))
+            .unwrap();
+        graph
+            .add_service(create_test_service(service_b, "service-b"))
+            .unwrap();
+        graph
+            .add_service(create_test_service(service_c, "service-c"))
+            .unwrap();
 
         // A -> B -> C
-        graph.add_dependency(service_a, service_b, create_dependency_edge(DependencyType::Calls)).unwrap();
-        graph.add_dependency(service_b, service_c, create_dependency_edge(DependencyType::Calls)).unwrap();
+        graph
+            .add_dependency(
+                service_a,
+                service_b,
+                create_dependency_edge(DependencyType::Calls),
+            )
+            .unwrap();
+        graph
+            .add_dependency(
+                service_b,
+                service_c,
+                create_dependency_edge(DependencyType::Calls),
+            )
+            .unwrap();
 
         let path = graph.find_shortest_path(&service_a, &service_c).unwrap();
         assert!(path.is_some());

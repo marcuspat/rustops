@@ -5,13 +5,13 @@
 
 use crate::{
     graph::ServiceGraph,
-    model::{ServiceNode, DependencyEdge, ServiceType, DependencyType},
+    model::{DependencyEdge, DependencyType, ServiceNode, ServiceType},
 };
-use rustops_common::{ServiceId, Result};
+use chrono::{DateTime, Utc};
+use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
-use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn};
 
 /// Domain event for topology changes
@@ -307,17 +307,23 @@ impl TopologyEventStore for InMemoryEventStore {
     fn store_event(&self, event: TopologyEvent) -> Result<()> {
         event.validate()?;
 
-        let mut events = self.events.write().map_err(|_| rustops_common::Error::Config {
-            message: "Failed to acquire write lock for events".to_string(),
-        })?;
+        let mut events = self
+            .events
+            .write()
+            .map_err(|_| rustops_common::Error::Config {
+                message: "Failed to acquire write lock for events".to_string(),
+            })?;
         let event_index = events.len();
         events.push(event.clone());
 
         // Update service index for service events
         if let Some(service_id) = event.service_id() {
-            let mut service_index = self.service_index.write().map_err(|_| rustops_common::Error::Config {
-                message: "Failed to acquire write lock for service index".to_string(),
-            })?;
+            let mut service_index =
+                self.service_index
+                    .write()
+                    .map_err(|_| rustops_common::Error::Config {
+                        message: "Failed to acquire write lock for service index".to_string(),
+                    })?;
             service_index
                 .entry(service_id.clone())
                 .or_insert_with(Vec::new)
@@ -329,12 +335,18 @@ impl TopologyEventStore for InMemoryEventStore {
     }
 
     fn get_service_events(&self, service_id: &ServiceId) -> Result<Vec<TopologyEvent>> {
-        let service_index = self.service_index.read().map_err(|_| rustops_common::Error::Config {
-            message: "Failed to acquire read lock for service index".to_string(),
-        })?;
-        let events = self.events.read().map_err(|_| rustops_common::Error::Config {
-            message: "Failed to acquire read lock for events".to_string(),
-        })?;
+        let service_index =
+            self.service_index
+                .read()
+                .map_err(|_| rustops_common::Error::Config {
+                    message: "Failed to acquire read lock for service index".to_string(),
+                })?;
+        let events = self
+            .events
+            .read()
+            .map_err(|_| rustops_common::Error::Config {
+                message: "Failed to acquire read lock for events".to_string(),
+            })?;
 
         Ok(service_index
             .get(service_id)
@@ -352,9 +364,12 @@ impl TopologyEventStore for InMemoryEventStore {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<TopologyEvent>> {
-        let events = self.events.read().map_err(|_| rustops_common::Error::Config {
-            message: "Failed to acquire read lock for events".to_string(),
-        })?;
+        let events = self
+            .events
+            .read()
+            .map_err(|_| rustops_common::Error::Config {
+                message: "Failed to acquire read lock for events".to_string(),
+            })?;
 
         Ok(events
             .iter()
@@ -367,16 +382,22 @@ impl TopologyEventStore for InMemoryEventStore {
     }
 
     fn get_all_events(&self) -> Result<Vec<TopologyEvent>> {
-        let events = self.events.read().map_err(|_| rustops_common::Error::Config {
-            message: "Failed to acquire read lock for events".to_string(),
-        })?;
+        let events = self
+            .events
+            .read()
+            .map_err(|_| rustops_common::Error::Config {
+                message: "Failed to acquire read lock for events".to_string(),
+            })?;
         Ok(events.clone())
     }
 
     fn get_recent_events(&self, count: usize) -> Result<Vec<TopologyEvent>> {
-        let events = self.events.read().map_err(|_| rustops_common::Error::Config {
-            message: "Failed to acquire read lock for events".to_string(),
-        })?;
+        let events = self
+            .events
+            .read()
+            .map_err(|_| rustops_common::Error::Config {
+                message: "Failed to acquire read lock for events".to_string(),
+            })?;
         let total = events.len();
         let start = if count >= total { 0 } else { total - count };
 
@@ -384,9 +405,12 @@ impl TopologyEventStore for InMemoryEventStore {
     }
 
     fn replay_events(&self, graph: &mut ServiceGraph) -> Result<()> {
-        let events = self.events.read().map_err(|_| rustops_common::Error::Config {
-            message: "Failed to acquire read lock for events".to_string(),
-        })?;
+        let events = self
+            .events
+            .read()
+            .map_err(|_| rustops_common::Error::Config {
+                message: "Failed to acquire read lock for events".to_string(),
+            })?;
         info!("Replaying {} topology events", events.len());
 
         for event in events.iter() {
@@ -401,10 +425,10 @@ impl TopologyEventStore for InMemoryEventStore {
                         id: *service_id,
                         name: service_name.clone(),
                         namespace: "default".to_string(), // Would be stored in event
-                        cluster: "default".to_string(),    // Would be stored in event
+                        cluster: "default".to_string(),   // Would be stored in event
                         service_type: *service_type,
-                        replicas: 1, // Would be stored in event
-                        labels: HashMap::new(), // Would be stored in event
+                        replicas: 1,                 // Would be stored in event
+                        labels: HashMap::new(),      // Would be stored in event
                         annotations: HashMap::new(), // Would be stored in event
                         health: crate::model::HealthStatus::Unknown,
                         created_at: now,
@@ -420,7 +444,9 @@ impl TopologyEventStore for InMemoryEventStore {
                         warn!("Failed to replay service remove event: {}", e);
                     }
                 }
-                TopologyEvent::ServiceUpdated { current_service, .. } => {
+                TopologyEvent::ServiceUpdated {
+                    current_service, ..
+                } => {
                     if let Err(e) = graph.add_service(current_service.clone()) {
                         warn!("Failed to replay service update event: {}", e);
                     }
@@ -446,7 +472,9 @@ impl TopologyEventStore for InMemoryEventStore {
                     to_service_id,
                     edge_type,
                 } => {
-                    if let Err(e) = graph.remove_dependency(*from_service_id, *to_service_id, *edge_type) {
+                    if let Err(e) =
+                        graph.remove_dependency(*from_service_id, *to_service_id, *edge_type)
+                    {
                         warn!("Failed to replay dependency remove event: {}", e);
                     }
                 }
@@ -461,9 +489,12 @@ impl TopologyEventStore for InMemoryEventStore {
     }
 
     fn get_statistics(&self) -> Result<EventStatistics> {
-        let events = self.events.read().map_err(|_| rustops_common::Error::Config {
-            message: "Failed to acquire read lock for events".to_string(),
-        })?;
+        let events = self
+            .events
+            .read()
+            .map_err(|_| rustops_common::Error::Config {
+                message: "Failed to acquire read lock for events".to_string(),
+            })?;
 
         let mut service_events = 0;
         let mut dependency_events = 0;
@@ -472,7 +503,9 @@ impl TopologyEventStore for InMemoryEventStore {
 
         for event in events.iter() {
             match event {
-                TopologyEvent::ServiceAdded { .. } | TopologyEvent::ServiceRemoved { .. } | TopologyEvent::ServiceUpdated { .. } => {
+                TopologyEvent::ServiceAdded { .. }
+                | TopologyEvent::ServiceRemoved { .. }
+                | TopologyEvent::ServiceUpdated { .. } => {
                     service_events += 1;
                 }
                 TopologyEvent::DependencyAdded { .. } | TopologyEvent::DependencyRemoved { .. } => {
@@ -563,7 +596,12 @@ impl EventEmitter {
     }
 
     /// Emit service added event
-    pub fn emit_service_added(&self, service_id: ServiceId, service_name: Option<String>, service_type: ServiceType) -> Result<()> {
+    pub fn emit_service_added(
+        &self,
+        service_id: ServiceId,
+        service_name: Option<String>,
+        service_type: ServiceType,
+    ) -> Result<()> {
         let event = TopologyEvent::ServiceAdded {
             service_id,
             service_name,
@@ -579,7 +617,12 @@ impl EventEmitter {
     }
 
     /// Emit service updated event
-    pub fn emit_service_updated(&self, service_id: ServiceId, previous_service: Option<ServiceNode>, current_service: ServiceNode) -> Result<()> {
+    pub fn emit_service_updated(
+        &self,
+        service_id: ServiceId,
+        previous_service: Option<ServiceNode>,
+        current_service: ServiceNode,
+    ) -> Result<()> {
         let event = TopologyEvent::ServiceUpdated {
             service_id,
             previous_service,
@@ -589,7 +632,12 @@ impl EventEmitter {
     }
 
     /// Emit dependency added event
-    pub fn emit_dependency_added(&self, from_service_id: ServiceId, to_service_id: ServiceId, edge_type: DependencyType) -> Result<()> {
+    pub fn emit_dependency_added(
+        &self,
+        from_service_id: ServiceId,
+        to_service_id: ServiceId,
+        edge_type: DependencyType,
+    ) -> Result<()> {
         let event = TopologyEvent::DependencyAdded {
             from_service_id,
             to_service_id,
@@ -599,7 +647,12 @@ impl EventEmitter {
     }
 
     /// Emit dependency removed event
-    pub fn emit_dependency_removed(&self, from_service_id: ServiceId, to_service_id: ServiceId, edge_type: DependencyType) -> Result<()> {
+    pub fn emit_dependency_removed(
+        &self,
+        from_service_id: ServiceId,
+        to_service_id: ServiceId,
+        edge_type: DependencyType,
+    ) -> Result<()> {
         let event = TopologyEvent::DependencyRemoved {
             from_service_id,
             to_service_id,
@@ -609,7 +662,11 @@ impl EventEmitter {
     }
 
     /// Emit topology synchronized event
-    pub fn emit_topology_synchronized(&self, service_count: usize, dependency_count: usize) -> Result<()> {
+    pub fn emit_topology_synchronized(
+        &self,
+        service_count: usize,
+        dependency_count: usize,
+    ) -> Result<()> {
         let event = TopologyEvent::TopologySynchronized {
             timestamp: Utc::now(),
             service_count,
@@ -686,13 +743,17 @@ mod tests {
 
         // Store events
         let service_id = ServiceId::new();
-        store.store_event(TopologyEvent::ServiceAdded {
-            service_id,
-            service_name: Some("test".to_string()),
-            service_type: ServiceType::Deployment,
-        }).unwrap();
+        store
+            .store_event(TopologyEvent::ServiceAdded {
+                service_id,
+                service_name: Some("test".to_string()),
+                service_type: ServiceType::Deployment,
+            })
+            .unwrap();
 
-        store.store_event(TopologyEvent::ServiceRemoved { service_id }).unwrap();
+        store
+            .store_event(TopologyEvent::ServiceRemoved { service_id })
+            .unwrap();
 
         // Get service events
         let service_events = store.get_service_events(&service_id).unwrap();
@@ -714,18 +775,18 @@ mod tests {
         let emitter = EventEmitter::new(Box::new(store));
 
         let service_id = ServiceId::new();
-        emitter.emit_service_added(
-            service_id,
-            Some("test-service".to_string()),
-            ServiceType::Deployment,
-        ).unwrap();
+        emitter
+            .emit_service_added(
+                service_id,
+                Some("test-service".to_string()),
+                ServiceType::Deployment,
+            )
+            .unwrap();
 
         let to_service_id = ServiceId::new();
-        emitter.emit_dependency_added(
-            service_id,
-            to_service_id,
-            DependencyType::Calls,
-        ).unwrap();
+        emitter
+            .emit_dependency_added(service_id, to_service_id, DependencyType::Calls)
+            .unwrap();
 
         let stats = emitter.get_statistics().unwrap();
         assert_eq!(stats.total_events, 2);

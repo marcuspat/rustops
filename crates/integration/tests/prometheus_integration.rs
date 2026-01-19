@@ -2,16 +2,16 @@
 //!
 //! These tests require a running Prometheus instance or can be mocked
 
-use std::collections::HashMap;
+use chrono::{DateTime, Duration, Utc};
 use rustops_integration::{
+    adapter::{IntegrationAdapter, MetricQuery, TelemetryCollector},
     prometheus::{
-        PrometheusAdapter, PrometheusQuery, AlertRule, ServiceDiscoveryConfig,
-        AlertEvaluation, AlertStatus, ServiceTarget, RelabelAction,
+        AlertEvaluation, AlertRule, AlertStatus, PrometheusAdapter, PrometheusQuery, RelabelAction,
+        ServiceDiscoveryConfig, ServiceTarget,
     },
     CircuitBreakerConfig, RateLimiterConfig, RetryConfig,
-    adapter::{IntegrationAdapter, MetricQuery, TelemetryCollector},
 };
-use chrono::{DateTime, Utc, Duration};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -50,7 +50,9 @@ async fn test_prometheus_query_construction() {
     let query = "up{job=\"prometheus\"}";
 
     // This would make the actual query if Prometheus is running
-    let _ = adapter.query_range(query, start_time, end_time, "15s").await;
+    let _ = adapter
+        .query_range(query, start_time, end_time, "15s")
+        .await;
 }
 
 #[tokio::test]
@@ -78,7 +80,10 @@ async fn test_alert_rule_evaluation() {
             annotations: {
                 let mut annotations = HashMap::new();
                 annotations.insert("summary".to_string(), "High CPU usage detected".to_string());
-                annotations.insert("description".to_string(), "CPU usage has been above 80% for 5 minutes".to_string());
+                annotations.insert(
+                    "description".to_string(),
+                    "CPU usage has been above 80% for 5 minutes".to_string(),
+                );
                 annotations
             },
         },
@@ -136,7 +141,12 @@ async fn test_service_discovery() {
         Ok(targets) => {
             println!("Discovered {} targets", targets.len());
             for target in targets {
-                println!("Target: {}:{} Path: {}", target.address, target.port.unwrap_or("9090".to_string()), target.metrics_path);
+                println!(
+                    "Target: {}:{} Path: {}",
+                    target.address,
+                    target.port.unwrap_or("9090".to_string()),
+                    target.metrics_path
+                );
             }
         }
         Err(e) => println!("Service discovery failed: {}", e),
@@ -221,11 +231,13 @@ async fn test_telemetry_subscription() {
         while let Some(event) = receiver.recv().await {
             println!("Received telemetry event: {:?}", event);
             count += 1;
-            if count >= 3 { // Limit number of events for testing
+            if count >= 3 {
+                // Limit number of events for testing
                 break;
             }
         }
-    }).await;
+    })
+    .await;
 
     println!("Received {} telemetry events", count);
 }

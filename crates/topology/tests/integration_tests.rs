@@ -1,23 +1,25 @@
 //! Integration tests for the topology crate
 
-use rustops_topology::{
-    model::{ServiceNode, DependencyEdge, ServiceType, DependencyType},
-    graph::ServiceGraph,
-    discovery::{DiscoveryManager, InMemoryEventStore},
-    impact::ImpactAnalyzer,
-    store::InMemoryEventStore as StoreEventStore,
-    TopologyService,
-    TopologyServiceBuilder,
-    EventStatistics,
-};
 use rustops_common::ServiceId;
+use rustops_topology::{
+    discovery::DiscoveryManager,
+    events::{EventEmitter, EventStatistics, InMemoryEventStore},
+    graph::ServiceGraph,
+    impact::ImpactAnalyzer,
+    model::{DependencyEdge, DependencyType, ServiceNode, ServiceType},
+    TopologyService, TopologyServiceBuilder,
+};
 use std::collections::HashMap;
 use tokio_test;
 
 #[tokio::test]
 async fn test_topology_service_end_to_end() {
     // Create topology service
-    let mut service = TopologyServiceBuilder::development().await.unwrap();
+    let config = rustops_topology::TopologyConfig {
+        neo4j_uri: String::new(),
+        ..Default::default()
+    };
+    let mut service = TopologyService::new(config).await.unwrap();
 
     // Create test services
     let service_a = ServiceNode::new(
@@ -47,11 +49,10 @@ async fn test_topology_service_end_to_end() {
         DependencyType::Calls,
     );
 
-    service.graph_mut().add_dependency(
-        dependency.from,
-        dependency.to,
-        dependency,
-    ).unwrap();
+    service
+        .graph_mut()
+        .add_dependency(dependency.from, dependency.to, dependency)
+        .unwrap();
 
     // Verify topology statistics
     let stats = service.get_topology_statistics().await.unwrap();
@@ -121,14 +122,20 @@ async fn test_service_graph_operations() {
     assert_eq!(graph.dependency_count(), 2);
 
     // Test dependency discovery
-    let downstream = graph.find_downstream_dependencies(&graph.get_services().next().unwrap().id).unwrap();
+    let downstream = graph
+        .find_downstream_dependencies(&graph.get_services().next().unwrap().id)
+        .unwrap();
     assert_eq!(downstream.len(), 2);
 
-    let upstream = graph.find_upstream_dependencies(&graph.get_services().nth(2).unwrap().id).unwrap();
+    let upstream = graph
+        .find_upstream_dependencies(&graph.get_services().nth(2).unwrap().id)
+        .unwrap();
     assert_eq!(upstream.len(), 2);
 
     // Test blast radius
-    let blast_radius = graph.calculate_blast_radius(&graph.get_services().nth(2).unwrap().id, 5).unwrap();
+    let blast_radius = graph
+        .calculate_blast_radius(&graph.get_services().nth(2).unwrap().id, 5)
+        .unwrap();
     assert!(blast_radius.total_affected_services >= 2);
 
     println!("Service graph operations test passed");
@@ -137,22 +144,22 @@ async fn test_service_graph_operations() {
 #[tokio::test]
 async fn test_event_system() {
     let event_store = InMemoryEventStore::new();
-    let mut emitter = crate::events::EventEmitter::new(Box::new(event_store.clone()));
+    let mut emitter = rustops_topology::events::EventEmitter::new(Box::new(event_store.clone()));
 
     // Test emitting events
     let service_id = ServiceId::new();
-    emitter.emit_service_added(
-        service_id,
-        Some("test-service".to_string()),
-        ServiceType::Deployment,
-    ).unwrap();
+    emitter
+        .emit_service_added(
+            service_id,
+            Some("test-service".to_string()),
+            ServiceType::Deployment,
+        )
+        .unwrap();
 
     let to_service_id = ServiceId::new();
-    emitter.emit_dependency_added(
-        service_id,
-        to_service_id,
-        DependencyType::Calls,
-    ).unwrap();
+    emitter
+        .emit_dependency_added(service_id, to_service_id, DependencyType::Calls)
+        .unwrap();
 
     // Test event retrieval
     let service_events = event_store.get_service_events(&service_id).unwrap();
@@ -175,7 +182,10 @@ async fn test_discovery_manager() {
     manager.add_discovery(Box::new(mock_discovery));
 
     // Run discovery (will return empty for mock)
-    let result = manager.discover_and_update(&mut ServiceGraph::new(None)).await.unwrap();
+    let result = manager
+        .discover_and_update(&mut ServiceGraph::new(None))
+        .await
+        .unwrap();
     assert!(result.total_services_discovered >= 0);
 
     // Test available sources
@@ -195,17 +205,15 @@ impl MockDiscovery {
 }
 
 #[async_trait::async_trait]
-impl crate::discovery::Discovery for MockDiscovery {
+impl rustops_topology::discovery::Discovery for MockDiscovery {
     async fn discover_services(&self) -> Result<Vec<ServiceNode>> {
-        Ok(vec![
-            ServiceNode::new(
-                ServiceId::new(),
-                Some("mock-service".to_string()),
-                "default".to_string(),
-                "mock-cluster".to_string(),
-                ServiceType::Deployment,
-            ),
-        ])
+        Ok(vec![ServiceNode::new(
+            ServiceId::new(),
+            Some("mock-service".to_string()),
+            "default".to_string(),
+            "mock-cluster".to_string(),
+            ServiceType::Deployment,
+        )])
     }
 
     async fn discover_dependencies(&self) -> Result<Vec<DependencyEdge>> {
@@ -279,7 +287,10 @@ async fn test_service_builder() {
     assert_eq!(service.service_type, ServiceType::StatefulSet);
     assert_eq!(service.replicas, 3);
     assert_eq!(service.labels.get("app"), Some(&"my-app".to_string()));
-    assert_eq!(service.annotations.get("description"), Some(&"Built with builder".to_string()));
+    assert_eq!(
+        service.annotations.get("description"),
+        Some(&"Built with builder".to_string())
+    );
 
     // Test dependency builder
     let from_id = ServiceId::new();
@@ -369,11 +380,7 @@ async fn test_serialization() {
     assert_eq!(service.service_type, deserialized.service_type);
 
     // Test dependency edge serialization
-    let dependency = DependencyEdge::new(
-        ServiceId::new(),
-        ServiceId::new(),
-        DependencyType::Calls,
-    );
+    let dependency = DependencyEdge::new(ServiceId::new(), ServiceId::new(), DependencyType::Calls);
 
     let serialized_dep = serde_json::to_string(&dependency).unwrap();
     let deserialized_dep: DependencyEdge = serde_json::from_str(&serialized_dep).unwrap();

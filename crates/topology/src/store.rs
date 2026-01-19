@@ -4,15 +4,15 @@
 //! Full implementation would use neo4rs client for Cypher queries.
 
 use crate::{
+    error::{Error, Result},
     graph::ServiceGraph,
-    model::{ServiceNode, DependencyEdge, ServiceType, HealthStatus},
-    error::{Result, Error},
+    model::{DependencyEdge, HealthStatus, ServiceNode, ServiceType},
 };
+use chrono::{DateTime, Utc};
 use rustops_common::ServiceId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
-use chrono::{DateTime, Utc};
 
 /// Graph store trait for topology persistence
 #[async_trait::async_trait]
@@ -39,7 +39,11 @@ pub trait GraphStore: Send + Sync {
     async fn delete_service(&self, service_id: &ServiceId) -> Result<()>;
 
     /// Execute a Cypher query
-    async fn execute_query(&self, query: &str, params: HashMap<String, serde_json::Value>) -> Result<QueryResult>;
+    async fn execute_query(
+        &self,
+        query: &str,
+        params: HashMap<String, serde_json::Value>,
+    ) -> Result<QueryResult>;
 
     /// Begin a transaction
     async fn begin_transaction(&self) -> Result<Box<dyn Transaction>>;
@@ -52,7 +56,11 @@ pub trait GraphStore: Send + Sync {
 #[async_trait::async_trait]
 pub trait Transaction: Send + Sync {
     /// Execute query in transaction
-    async fn execute(&mut self, query: &str, params: HashMap<String, serde_json::Value>) -> Result<()>;
+    async fn execute(
+        &mut self,
+        query: &str,
+        params: HashMap<String, serde_json::Value>,
+    ) -> Result<()>;
 
     /// Commit transaction
     async fn commit(self: Box<Self>) -> Result<()>;
@@ -130,21 +138,60 @@ impl Neo4jStore {
     fn service_to_params(&self, service: &ServiceNode) -> HashMap<String, serde_json::Value> {
         let mut params = HashMap::new();
 
-        params.insert("id".to_string(), serde_json::Value::String(service.id.to_string()));
-        params.insert("name".to_string(), serde_json::Value::String(service.name.clone().unwrap_or_default()));
-        params.insert("namespace".to_string(), serde_json::Value::String(service.namespace.clone()));
-        params.insert("cluster".to_string(), serde_json::Value::String(service.cluster.clone()));
-        params.insert("service_type".to_string(), serde_json::Value::String(format!("{:?}", service.service_type)));
-        params.insert("replicas".to_string(), serde_json::Value::Number(serde_json::Number::from(service.replicas)));
-        params.insert("health".to_string(), serde_json::Value::String(format!("{:?}", service.health)));
-        params.insert("labels".to_string(), serde_json::Value::Object(serde_json::Map::from_iter(
-            service.labels.iter().map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-        )));
-        params.insert("annotations".to_string(), serde_json::Value::Object(serde_json::Map::from_iter(
-            service.annotations.iter().map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-        )));
-        params.insert("created_at".to_string(), serde_json::Value::String(service.created_at.to_rfc3339()));
-        params.insert("updated_at".to_string(), serde_json::Value::String(service.updated_at.to_rfc3339()));
+        params.insert(
+            "id".to_string(),
+            serde_json::Value::String(service.id.to_string()),
+        );
+        params.insert(
+            "name".to_string(),
+            serde_json::Value::String(service.name.clone().unwrap_or_default()),
+        );
+        params.insert(
+            "namespace".to_string(),
+            serde_json::Value::String(service.namespace.clone()),
+        );
+        params.insert(
+            "cluster".to_string(),
+            serde_json::Value::String(service.cluster.clone()),
+        );
+        params.insert(
+            "service_type".to_string(),
+            serde_json::Value::String(format!("{:?}", service.service_type)),
+        );
+        params.insert(
+            "replicas".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(service.replicas)),
+        );
+        params.insert(
+            "health".to_string(),
+            serde_json::Value::String(format!("{:?}", service.health)),
+        );
+        params.insert(
+            "labels".to_string(),
+            serde_json::Value::Object(serde_json::Map::from_iter(
+                service
+                    .labels
+                    .iter()
+                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone()))),
+            )),
+        );
+        params.insert(
+            "annotations".to_string(),
+            serde_json::Value::Object(serde_json::Map::from_iter(
+                service
+                    .annotations
+                    .iter()
+                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone()))),
+            )),
+        );
+        params.insert(
+            "created_at".to_string(),
+            serde_json::Value::String(service.created_at.to_rfc3339()),
+        );
+        params.insert(
+            "updated_at".to_string(),
+            serde_json::Value::String(service.updated_at.to_rfc3339()),
+        );
 
         params
     }
@@ -153,13 +200,25 @@ impl Neo4jStore {
     fn dependency_to_params(&self, edge: &DependencyEdge) -> HashMap<String, serde_json::Value> {
         let mut params = HashMap::new();
 
-        params.insert("from".to_string(), serde_json::Value::String(edge.from.to_string()));
-        params.insert("to".to_string(), serde_json::Value::String(edge.to.to_string()));
-        params.insert("edge_type".to_string(), serde_json::Value::String(format!("{:?}", edge.edge_type)));
+        params.insert(
+            "from".to_string(),
+            serde_json::Value::String(edge.from.to_string()),
+        );
+        params.insert(
+            "to".to_string(),
+            serde_json::Value::String(edge.to.to_string()),
+        );
+        params.insert(
+            "edge_type".to_string(),
+            serde_json::Value::String(format!("{:?}", edge.edge_type)),
+        );
 
-        params.insert("metadata".to_string(), serde_json::Value::Object(serde_json::Map::from_iter(
-            edge.metadata.iter().map(|(k, v)| (k.clone(), v.clone()))
-        )));
+        params.insert(
+            "metadata".to_string(),
+            serde_json::Value::Object(serde_json::Map::from_iter(
+                edge.metadata.iter().map(|(k, v)| (k.clone(), v.clone())),
+            )),
+        );
 
         params
     }
@@ -191,7 +250,10 @@ impl GraphStore for Neo4jStore {
 
         let params = self.service_to_params(service);
         self.execute_query(query, params).await?;
-        debug!("Stored service: {}", service.name.as_deref().unwrap_or("<unnamed>"));
+        debug!(
+            "Stored service: {}",
+            service.name.as_deref().unwrap_or("<unnamed>")
+        );
         Ok(())
     }
 
@@ -204,7 +266,12 @@ impl GraphStore for Neo4jStore {
         "#;
 
         let mut params = self.dependency_to_params(edge);
-        let edge_id = format!("{}_{}_{}", edge.from, edge.to, format!("{:?}", edge.edge_type).to_lowercase());
+        let edge_id = format!(
+            "{}_{}_{}",
+            edge.from,
+            edge.to,
+            format!("{:?}", edge.edge_type).to_lowercase()
+        );
         params.insert("edge_id".to_string(), serde_json::Value::String(edge_id));
 
         self.execute_query(query, params).await?;
@@ -216,7 +283,10 @@ impl GraphStore for Neo4jStore {
         let query = "MATCH (s:Service {id: $id}) RETURN s";
 
         let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::Value::String(service_id.to_string()));
+        params.insert(
+            "id".to_string(),
+            serde_json::Value::String(service_id.to_string()),
+        );
 
         let result = self.execute_query(query, params).await?;
 
@@ -250,7 +320,10 @@ impl GraphStore for Neo4jStore {
         "#;
 
         let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::Value::String(service_id.to_string()));
+        params.insert(
+            "id".to_string(),
+            serde_json::Value::String(service_id.to_string()),
+        );
 
         let result = self.execute_query(query, params).await?;
 
@@ -267,14 +340,21 @@ impl GraphStore for Neo4jStore {
         let query = "MATCH (s:Service {id: $id}) DETACH DELETE s";
 
         let mut params = HashMap::new();
-        params.insert("id".to_string(), serde_json::Value::String(service_id.to_string()));
+        params.insert(
+            "id".to_string(),
+            serde_json::Value::String(service_id.to_string()),
+        );
 
         self.execute_query(query, params).await?;
         debug!("Deleted service: {}", service_id);
         Ok(())
     }
 
-    async fn execute_query(&self, query: &str, params: HashMap<String, serde_json::Value>) -> Result<QueryResult> {
+    async fn execute_query(
+        &self,
+        query: &str,
+        params: HashMap<String, serde_json::Value>,
+    ) -> Result<QueryResult> {
         debug!("Executing Neo4j query: {}", query);
 
         // In a real implementation, this would execute the query using neo4rs
@@ -331,7 +411,11 @@ impl Neo4jTransaction {
 
 #[async_trait::async_trait]
 impl Transaction for Neo4jTransaction {
-    async fn execute(&mut self, query: &str, params: HashMap<String, serde_json::Value>) -> Result<()> {
+    async fn execute(
+        &mut self,
+        query: &str,
+        params: HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
         self.queries.push((query.to_string(), params));
         debug!("Queued query in transaction");
         Ok(())
@@ -354,11 +438,7 @@ pub struct GraphStoreFactory;
 impl GraphStoreFactory {
     /// Create Neo4j store with configuration
     pub async fn create_neo4j_store(config: Neo4jConfig) -> Result<Box<dyn GraphStore>> {
-        let store = Neo4jStore::new(
-            config.uri,
-            config.username,
-            config.password,
-        );
+        let store = Neo4jStore::new(config.uri, config.username, config.password);
 
         store.initialize().await?;
         Ok(Box::new(store))
@@ -368,7 +448,9 @@ impl GraphStoreFactory {
     pub async fn create_memory_store() -> Result<Box<dyn GraphStore>> {
         // For testing purposes, return a memory store implementation
         // This would be implemented in a real system
-        Err(Error::graph_database("Memory store not implemented".to_string()))
+        Err(Error::graph_database(
+            "Memory store not implemented".to_string(),
+        ))
     }
 }
 
@@ -429,10 +511,7 @@ impl GraphService {
             graph.add_dependency(dep.from, dep.to, dep)?;
         }
 
-        Ok(Self {
-            store,
-            graph,
-        })
+        Ok(Self { store, graph })
     }
 
     /// Get the service graph
@@ -472,11 +551,7 @@ mod tests {
     #[tokio::test]
     async fn test_neo4j_store_creation() {
         let config = Neo4jConfig::default();
-        let store = Neo4jStore::new(
-            config.uri,
-            config.username,
-            config.password,
-        );
+        let store = Neo4jStore::new(config.uri, config.username, config.password);
 
         assert!(store.connect().await.is_ok());
     }
@@ -532,7 +607,11 @@ impl GraphStore for MockGraphStore {
         Ok(())
     }
 
-    async fn execute_query(&self, _query: &str, _params: HashMap<String, serde_json::Value>) -> Result<QueryResult> {
+    async fn execute_query(
+        &self,
+        _query: &str,
+        _params: HashMap<String, serde_json::Value>,
+    ) -> Result<QueryResult> {
         Ok(QueryResult {
             columns: Vec::new(),
             rows: Vec::new(),

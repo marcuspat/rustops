@@ -1,7 +1,7 @@
 //! Benchmarks for metric operations.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use rustops_common::{Metric, testing::MetricBuilder};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use rustops_common::{testing::MetricBuilder, Metric};
 use std::collections::HashMap;
 
 fn bench_metric_creation(c: &mut Criterion) {
@@ -95,19 +95,12 @@ fn bench_metric_aggregation(c: &mut Criterion) {
             })
             .collect();
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(size),
-            size,
-            |b, _| {
-                b.iter(|| {
-                    let sum: f64 = black_box(&metrics)
-                        .iter()
-                        .map(|m| m.value)
-                        .sum();
-                    black_box(sum)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
+            b.iter(|| {
+                let sum: f64 = black_box(&metrics).iter().map(|m| m.value).sum();
+                black_box(sum)
+            });
+        });
     }
 
     group.finish();

@@ -1,5 +1,4 @@
 # Clippy configuration
-array-local-expr-threshold = 512000
 array-size-threshold = 512000
 vec-box-size-threshold = 512000
 stack-size-threshold = 512000
@@ -7,7 +6,7 @@ enum-variant-name-threshold = 3
 enum-variant-size-threshold = 200
 literal-representation-threshold = 10
 
-blacklisted-names = ["foo", "bar", "baz", "quux"]
+disallowed-names = ["foo", "bar", "baz", "quux"]
 doc-valid-idents = ["RustOps", "AIOps", "SLO", "MTTR", "MTTD", "Kubernetes"]
 
 too-many-arguments-threshold = 7

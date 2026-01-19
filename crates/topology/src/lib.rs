@@ -6,67 +6,37 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
+use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::info;
-use serde::{Serialize, Deserialize};
 
-pub mod model;
-pub mod graph;
 pub mod discovery;
-pub mod store;
-pub mod impact;
-pub mod events;
 pub mod error;
+pub mod events;
+pub mod graph;
+pub mod impact;
+pub mod model;
+pub mod store;
 
 pub use error::Error;
 // Use rustops_common::Result throughout the topology crate for consistency
-pub use rustops_common::Result;
-pub use model::{
-    ServiceNode,
-    DependencyEdge,
-    ServiceType,
-    HealthStatus,
-    DependencyType,
-    Protocol,
-    ServiceFactory,
-    ServiceNodeBuilder,
-    DependencyEdgeBuilder,
-};
-pub use graph::{
-    ServiceGraph,
-    BlastRadius,
-};
 pub use discovery::{
-    Discovery,
-    DiscoveryManager,
-    KubernetesDiscovery,
-    PrometheusDiscovery,
-    TopologyDiscoveryResult,
-};
-pub use store::{
-    GraphStore,
-    GraphStoreFactory,
-    Neo4jStore,
-    Neo4jConfig,
-    GraphService,
-};
-pub use impact::{
-    ImpactAnalyzer,
-    ImpactAnalysis,
-    BlastRadiusAnalysis,
-    CriticalPath,
-    AffectedServices,
-    RiskAssessment,
-    Recommendation,
-    ImpactAnalyzerConfig,
+    Discovery, DiscoveryManager, KubernetesDiscovery, PrometheusDiscovery, TopologyDiscoveryResult,
 };
 pub use events::{
-    TopologyEvent,
-    TopologyEventStore,
-    InMemoryEventStore,
-    EventEmitter,
-    EventStatistics,
+    EventEmitter, EventStatistics, InMemoryEventStore, TopologyEvent, TopologyEventStore,
 };
+pub use graph::{BlastRadius, ServiceGraph};
+pub use impact::{
+    AffectedServices, BlastRadiusAnalysis, CriticalPath, ImpactAnalysis, ImpactAnalyzer,
+    ImpactAnalyzerConfig, Recommendation, RiskAssessment,
+};
+pub use model::{
+    DependencyEdge, DependencyEdgeBuilder, DependencyType, HealthStatus, Protocol, ServiceFactory,
+    ServiceNode, ServiceNodeBuilder, ServiceType,
+};
+pub use rustops_common::Result;
+pub use store::{GraphService, GraphStore, GraphStoreFactory, Neo4jConfig, Neo4jStore};
 
 /// Topology configuration
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -150,14 +120,18 @@ impl TopologyService {
             });
 
         let graph_store = if !config.neo4j_uri.is_empty() {
-            Some(GraphStoreFactory::create_neo4j_store(Neo4jConfig {
-                uri: config.neo4j_uri.clone(),
-                username: config.neo4j_username.clone(),
-                password: config.neo4j_password.clone(),
-                ..Default::default()
-            }).await.map_err(|e| rustops_common::Error::Config {
-                message: e.to_string(),
-            })?)
+            Some(
+                GraphStoreFactory::create_neo4j_store(Neo4jConfig {
+                    uri: config.neo4j_uri.clone(),
+                    username: config.neo4j_username.clone(),
+                    password: config.neo4j_password.clone(),
+                    ..Default::default()
+                })
+                .await
+                .map_err(|e| rustops_common::Error::Config {
+                    message: e.to_string(),
+                })?,
+            )
         } else {
             None
         };
@@ -184,12 +158,19 @@ impl TopologyService {
 
     /// Run discovery and update topology
     pub async fn discover_and_update(&mut self) -> Result<TopologyDiscoveryResult> {
-        self.discovery_manager.discover_and_update(&mut self.graph).await
+        self.discovery_manager
+            .discover_and_update(&mut self.graph)
+            .await
     }
 
     /// Analyze impact of service change
-    pub async fn analyze_impact(&self, service_id: &rustops_common::ServiceId) -> Result<ImpactAnalysis> {
-        self.impact_analyzer.analyze_service_impact(service_id).await
+    pub async fn analyze_impact(
+        &self,
+        service_id: &rustops_common::ServiceId,
+    ) -> Result<ImpactAnalysis> {
+        self.impact_analyzer
+            .analyze_service_impact(service_id)
+            .await
     }
 
     /// Store topology changes
@@ -198,8 +179,10 @@ impl TopologyService {
             // Persist all services
             for service in self.graph.get_all_services() {
                 if let Some(service_node) = self.graph.get_service(&service.id) {
-                    store.store_service(service_node).await.map_err(|e| rustops_common::Error::Database {
-                        message: e.to_string(),
+                    store.store_service(service_node).await.map_err(|e| {
+                        rustops_common::Error::Database {
+                            message: e.to_string(),
+                        }
                     })?;
                 }
             }
@@ -385,7 +368,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_topology_service_creation() {
-        let service = TopologyService::default().await.unwrap();
+        let config = TopologyConfig::default();
+        let service = TopologyService::new(config).await.unwrap();
         assert_eq!(service.config.discovery_interval_secs, 300);
         assert_eq!(service.config.max_blast_radius_hops, 5);
     }
@@ -487,7 +471,10 @@ pub mod cli {
         let cli = TopologyCli::parse();
 
         match cli.command {
-            Commands::Discover { namespace, include_system } => {
+            Commands::Discover {
+                namespace,
+                include_system,
+            } => {
                 println!("Discovering services in namespace: {:?}", namespace);
                 println!("Include system namespaces: {}", include_system);
                 // Implementation would go here
@@ -525,6 +512,7 @@ pub mod test_helpers {
     //! Test helpers for topology service
 
     use super::*;
+    use std::str::FromStr;
 
     /// Create test service node
     pub fn test_service(id: &str, name: &str, namespace: &str) -> ServiceNode {
@@ -548,6 +536,10 @@ pub mod test_helpers {
 
     /// Create in-memory topology service for testing
     pub async fn test_topology_service() -> TopologyService {
-        TopologyService::development().await.unwrap()
+        let config = TopologyConfig {
+            neo4j_uri: String::new(), // Empty = in-memory only
+            ..Default::default()
+        };
+        TopologyService::new(config).await.unwrap()
     }
 }

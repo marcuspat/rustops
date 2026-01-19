@@ -2,8 +2,8 @@
 //
 // This test verifies the Kubernetes adapter implementation works correctly
 
-use rustops_integration::infrastructure::kubernetes::{KubernetesAdapter, KubernetesConfig};
 use rustops_integration::adapter::IntegrationKind;
+use rustops_integration::infrastructure::kubernetes::{KubernetesAdapter, KubernetesConfig};
 use std::time::Duration;
 
 #[tokio::test]

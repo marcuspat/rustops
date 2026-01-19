@@ -74,7 +74,10 @@ impl ServiceGraph {
     /// Add a service to the graph
     pub fn add_service(&mut self, id: ServiceId, name: String) {
         if !self.service_indices.contains_key(&name) {
-            let node = ServiceNode { id, name: name.clone() };
+            let node = ServiceNode {
+                id,
+                name: name.clone(),
+            };
             let idx = self.graph.add_node(node);
             self.service_indices.insert(name, idx);
         }
@@ -94,7 +97,9 @@ impl ServiceGraph {
         self.graph.update_edge(
             from_idx,
             to_idx,
-            DependencyEdge { dependency_type: dep_type },
+            DependencyEdge {
+                dependency_type: dep_type,
+            },
         );
     }
 
@@ -246,8 +251,12 @@ impl AlertCorrelator {
         }
 
         // Check service graph
-        if self.service_graph.has_dependency_path(&a.service, &b.service)
-            || self.service_graph.has_dependency_path(&b.service, &a.service)
+        if self
+            .service_graph
+            .has_dependency_path(&a.service, &b.service)
+            || self
+                .service_graph
+                .has_dependency_path(&b.service, &a.service)
         {
             return true;
         }
@@ -265,7 +274,11 @@ impl AlertCorrelator {
         let max_severity = alerts.iter().map(|a| a.severity as i32).max().unwrap_or(0);
         let severity_score = max_severity as f64 / 4.0; // Normalize to 0-1
 
-        let service_count = alerts.iter().map(|a| &a.service).collect::<HashSet<_>>().len();
+        let service_count = alerts
+            .iter()
+            .map(|a| &a.service)
+            .collect::<HashSet<_>>()
+            .len();
         let service_score = (service_count as f64 / 10.0).min(1.0);
 
         severity_score * 0.6 + service_score * 0.4
@@ -332,13 +345,13 @@ mod tests {
 
         let now = Utc::now();
         let alerts = vec![
+            create_test_alert("database", "high_cpu", rustops_common::Severity::Major, now),
             create_test_alert(
-                "database",
-                "high_cpu",
-                rustops_common::Severity::Major,
+                "api",
+                "slow_requests",
+                rustops_common::Severity::Warning,
                 now,
             ),
-            create_test_alert("api", "slow_requests", rustops_common::Severity::Warning, now),
         ];
 
         let groups = correlator.correlate(alerts);

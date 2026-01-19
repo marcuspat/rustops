@@ -4,10 +4,8 @@
 
 use crate::{KafkaProducer, TelemetryEnvelope, TelemetryType};
 use chrono::Utc;
-use rustops_common::{
-    Error, LogEntry, Metric, MetricType, Result, ServiceId, TraceSpan,
-};
 use rustops_common::telemetry::LogLevel;
+use rustops_common::{Error, LogEntry, Metric, MetricType, Result, ServiceId, TraceSpan};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -87,9 +85,7 @@ impl MetricsCollector {
         // Parse: metric_name{labels} value
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() < 2 {
-            return Err(Error::invalid_input(
-                "invalid metric format: missing value",
-            ));
+            return Err(Error::invalid_input("invalid metric format: missing value"));
         }
 
         let name_part = parts[0];
@@ -116,7 +112,13 @@ impl MetricsCollector {
             MetricType::Gauge
         };
 
-        Ok(Metric::new(name, metric_type, value, self.service_id, labels))
+        Ok(Metric::new(
+            name,
+            metric_type,
+            value,
+            self.service_id,
+            labels,
+        ))
     }
 
     /// Parse label string like `method="post",code="200"`
@@ -285,9 +287,7 @@ mod tests {
         };
 
         // Simple gauge
-        let metric = collector
-            .parse_prometheus_line("cpu_usage 75.5")
-            .unwrap();
+        let metric = collector.parse_prometheus_line("cpu_usage 75.5").unwrap();
         assert_eq!(metric.name, "cpu_usage");
         assert_eq!(metric.value, 75.5);
 

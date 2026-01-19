@@ -1,7 +1,7 @@
 //! Property-based tests for common types.
 
 use proptest::prelude::*;
-use rustops_common::{telemetry::Metric, config::Config};
+use rustops_common::{config::Config, telemetry::Metric};
 
 /// Property: Metric value should always be finite when created.
 proptest! {
