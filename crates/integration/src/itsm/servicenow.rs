@@ -69,14 +69,14 @@ impl ServiceNowAdapter {
     /// Get auth headers
     fn auth_headers(&self) -> Result<HashMap<String, String>, IntegrationError> {
         let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/json");
-        headers.insert("Accept".to_string(), "application/json");
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        headers.insert("Accept".to_string(), "application/json".to_string());
 
         if let Some(token) = &self.access_token {
             headers.insert("Authorization".to_string(), format!("Bearer {}", token));
         } else if let (Some(username), Some(password)) = (&self.config.username, &self.config.password) {
             let auth = format!("{}:{}", username, password);
-            let encoded = std::base64::encode(auth);
+            let encoded = base64::encode(auth);
             headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
         }
 
@@ -98,21 +98,32 @@ impl ITSMNotifier for ServiceNowAdapter {
         let url = format!("{}/api/now/table/incident", self.config.instance_url.trim_end_matches('/'));
 
         let payload = CreateIncidentRequest {
-            short_description: incident.title,
-            description: incident.description,
+            short_description: incident.title.clone(),
+            description: incident.description.clone(),
             priority: severity_to_priority(incident.severity),
             impact: severity_to_impact(incident.severity),
             urgency: severity_to_urgency(incident.severity),
         };
 
-        self.base.execute_with_resilience(|| {
-            let client = self.client.clone();
-            let url_clone = url.clone();
-            let headers = self.auth_headers().unwrap_or_default();
+        let base = self.base.clone();
+        let client = self.client.clone();
+        let headers = self.auth_headers().unwrap_or_default();
+        let payload_clone = CreateIncidentRequest {
+            short_description: payload.short_description.clone(),
+            description: payload.description.clone(),
+            priority: payload.priority.clone(),
+            impact: payload.impact.clone(),
+            urgency: payload.urgency.clone(),
+        };
 
+        base.execute_with_resilience(move || {
+            let client = client.clone();
+            let url = url.clone();
+            let headers = headers.clone();
+            let payload = payload_clone.clone();
             async move {
                 let response = client
-                    .post(&url_clone)
+                    .post(&url)
                     .headers(try_into_headers(headers)?)
                     .json(&payload)
                     .send()
@@ -151,17 +162,20 @@ impl ITSMNotifier for ServiceNowAdapter {
             payload.insert("close_notes", resolution);
         }
 
-        self.base.execute_with_resilience(|| {
-            let client = self.client.clone();
-            let url_clone = url.clone();
-            let headers = self.auth_headers().unwrap_or_default();
-            let payload_clone = payload.clone();
+        let base = self.base.clone();
+        let client = self.client.clone();
+        let headers = self.auth_headers().unwrap_or_default();
 
+        base.execute_with_resilience(move || {
+            let client = client.clone();
+            let url = url.clone();
+            let headers = headers.clone();
+            let payload = payload.clone();
             async move {
                 let response = client
-                    .patch(&url_clone)
+                    .patch(&url)
                     .headers(try_into_headers(headers)?)
-                    .json(&payload_clone)
+                    .json(&payload)
                     .send()
                     .await
                     .map_err(|e| IntegrationError::Network(e.to_string()))?;
@@ -180,14 +194,17 @@ impl ITSMNotifier for ServiceNowAdapter {
     async fn get_incident(&self, id: &str) -> IntegrationResult<Incident> {
         let url = format!("{}/api/now/table/incident/{}", self.config.instance_url.trim_end_matches('/'), id);
 
-        let response: ServiceNowResponse = self.base.execute_with_resilience(|| {
-            let client = self.client.clone();
-            let url_clone = url.clone();
-            let headers = self.auth_headers().unwrap_or_default();
+        let base = self.base.clone();
+        let client = self.client.clone();
+        let headers = self.auth_headers().unwrap_or_default();
 
+        let response: ServiceNowResponse = base.execute_with_resilience(move || {
+            let client = client.clone();
+            let url = url.clone();
+            let headers = headers.clone();
             async move {
                 let response = client
-                    .get(&url_clone)
+                    .get(&url)
                     .headers(try_into_headers(headers)?)
                     .send()
                     .await
@@ -236,14 +253,17 @@ impl crate::adapter::IntegrationAdapter for ServiceNowAdapter {
     async fn health_check(&self) -> IntegrationResult<HealthStatus> {
         let url = format!("{}/api/now/table/sys_properties", self.config.instance_url.trim_end_matches('/'));
 
-        match self.base.execute_with_resilience(|| {
-            let client = self.client.clone();
-            let url_clone = url.clone();
-            let headers = self.auth_headers().unwrap_or_default();
+        let base = self.base.clone();
+        let client = self.client.clone();
+        let headers = self.auth_headers().unwrap_or_default();
 
+        match base.execute_with_resilience(move || {
+            let client = client.clone();
+            let url = url.clone();
+            let headers = headers.clone();
             async move {
                 let response = client
-                    .head(&url_clone)
+                    .head(&url)
                     .headers(try_into_headers(headers)?)
                     .send()
                     .await
@@ -362,7 +382,7 @@ fn try_into_headers(map: HashMap<String, String>) -> Result<reqwest::header::Hea
 // ServiceNow API Types
 // =============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct CreateIncidentRequest {
     short_description: String,
     description: String,

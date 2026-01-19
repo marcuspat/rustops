@@ -289,6 +289,7 @@ pub struct ActionResult {
 // =============================================================================
 
 /// Base adapter with common functionality
+#[derive(Clone)]
 pub struct BaseAdapter {
     id: String,
     kind: IntegrationKind,

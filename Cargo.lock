@@ -2842,6 +2842,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "backoff",
+ "base64 0.22.1",
  "chrono",
  "governor",
  "hyper 0.14.32",

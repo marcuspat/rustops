@@ -164,20 +164,21 @@ impl PrometheusAdapter {
         }
 
         let params_clone = params.clone();
+        let base = self.base.clone();
+        let client = self.client.clone();
 
-        self.base.execute_with_resilience(move || {
-            let url_clone = url.clone();
-            let client_clone = self.client.clone();
+        base.execute_with_resilience(move || {
+            let client = client.clone();
+            let url = url.clone();
             let params = params_clone.clone();
-
             async move {
                 let request = Request::builder()
                     .method(Method::GET)
-                    .uri(&url_clone)
+                    .uri(&url)
                     .header(CONTENT_TYPE, "application/json")
-                    .body(Body::from(serde_json::to_vec(&params)?))?;
+                    .body(Body::from(serde_json::to_vec(&params).map_err(|e| IntegrationError::Unknown(e.to_string()))?))?;
 
-                let response = client_clone.request(request).await?;
+                let response = client.request(request).await?;
 
                 if !response.status().is_success() {
                     return Err(IntegrationError::Network(format!("HTTP {}: {}", response.status(), response.status().canonical_reason().unwrap_or(""))));
@@ -299,19 +300,20 @@ impl PrometheusAdapter {
             target.port.as_ref().unwrap_or(&"9090".to_string()),
             &target.metrics_path
         );
+        let base = self.base.clone();
+        let client = self.client.clone();
 
-        self.base.execute_with_resilience(move || {
-            let url_clone = url.clone();
-            let client_clone = self.client.clone();
-
+        base.execute_with_resilience(move || {
+            let client = client.clone();
+            let url = url.clone();
             async move {
                 let request = Request::builder()
                     .method(Method::GET)
-                    .uri(&url_clone)
+                    .uri(&url)
                     .header(USER_AGENT, "rustops-integration/1.0")
                     .body(Body::empty())?;
 
-                let response = client_clone.request(request).await?;
+                let response = client.request(request).await?;
 
                 if !response.status().is_success() {
                     return Err(IntegrationError::Network(format!("HTTP {}: {}", response.status(), response.status().canonical_reason().unwrap_or(""))));
@@ -331,17 +333,19 @@ impl PrometheusAdapter {
             url.push_str(&format!("?match[]={}", match_));
         }
 
-        self.base.execute_with_resilience(move || {
-            let url_clone = url.clone();
-            let client_clone = self.client.clone();
+        let base = self.base.clone();
+        let client = self.client.clone();
 
+        base.execute_with_resilience(move || {
+            let client = client.clone();
+            let url = url.clone();
             async move {
                 let request = Request::builder()
                     .method(Method::GET)
-                    .uri(&url_clone)
+                    .uri(&url)
                     .body(Body::empty())?;
 
-                let response = client_clone.request(request).await?;
+                let response = client.request(request).await?;
 
                 if !response.status().is_success() {
                     return Err(IntegrationError::Network(format!("HTTP {}: {}", response.status(), response.status().canonical_reason().unwrap_or(""))));
@@ -390,9 +394,9 @@ impl IntegrationAdapter for PrometheusAdapter {
                 tracing::info!("Prometheus adapter initialized successfully");
                 Ok(())
             }
-            _ => Err(IntegrationError::ServiceUnavailable {
-                service: "prometheus".to_string(),
-            }),
+            _ => Err(IntegrationError::ServiceUnavailable(
+                "prometheus".to_string()
+            )),
         }
     }
 
@@ -424,7 +428,7 @@ impl TelemetryCollector for PrometheusAdapter {
 
             if let Some(values) = result.values {
                 for value_pair in values {
-                    let timestamp = DateTime::<Utc>::from_timestamp(value_pair[1].as_u64().unwrap_or(0) / 1000, 0)
+                    let timestamp = DateTime::<Utc>::from_timestamp((value_pair[1].as_u64().unwrap_or(0) / 1000) as i64, 0)
                         .unwrap_or(Utc::now());
 
                     metrics.push(adapter::Metric {
@@ -435,7 +439,7 @@ impl TelemetryCollector for PrometheusAdapter {
                     });
                 }
             } else if let Some(value) = result.value {
-                let timestamp = DateTime::<Utc>::from_timestamp(value[1].as_u64().unwrap_or(0) / 1000, 0)
+                let timestamp = DateTime::<Utc>::from_timestamp((value[1].as_u64().unwrap_or(0) / 1000) as i64, 0)
                     .unwrap_or(Utc::now());
 
                 metrics.push(adapter::Metric {
@@ -479,7 +483,7 @@ impl TelemetryCollector for PrometheusAdapter {
                 if let Ok(response) = PrometheusAdapter::new(
                     "temp-subscriber",
                     "http://localhost:9090",
-                    None,
+                    None::<(&str, &str)>,
                     crate::CircuitBreakerConfig::default(),
                     crate::RateLimiterConfig::default(),
                     crate::RetryConfig::default(),
@@ -508,7 +512,7 @@ impl TelemetryCollector for PrometheusAdapter {
 }
 
 /// Alert evaluation result
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AlertEvaluation {
     pub rule_name: String,
     pub expression: String,

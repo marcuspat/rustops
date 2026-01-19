@@ -33,6 +33,7 @@ k8s-openapi = { workspace = true }
 # Encoding and utilities
 urlencoding = "2.1"
 wiremock = "0.6"
+base64 = "0.22"
 
 # Authentication
 oauth2 = "4.4"
