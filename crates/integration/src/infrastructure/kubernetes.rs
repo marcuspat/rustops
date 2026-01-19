@@ -182,14 +182,14 @@ impl KubernetesAdapter {
 #[async_trait]
 impl InfrastructureMonitor for KubernetesAdapter {
     async fn list_resources(&self, filters: ResourceFilter) -> IntegrationResult<Vec<AdapterResource>> {
-        let client = self.client()?;
+        // Create all owned values before the closure
+        let namespace_str = self.config.namespace.clone().unwrap_or_else(|| "default".to_string());
+        let client = self.client()?.clone();
+        let base = self.base.clone();
 
-        let namespace = self.config.namespace.as_deref().unwrap_or("default");
-        let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-
-        self.base.execute_with_resilience(move || {
+        base.execute_with_resilience(move || {
             let client_clone = client.clone();
-            let namespace_clone = namespace.to_string();
+            let namespace_clone = namespace_str.clone();
             let filters_clone = filters.clone();
 
             async move {
@@ -218,7 +218,7 @@ impl InfrastructureMonitor for KubernetesAdapter {
                         name: pod.metadata.name.unwrap_or_default(),
                         resource_type: "Pod".to_string(),
                         namespace: pod.metadata.namespace,
-                        labels: pod.metadata.labels.unwrap_or_default(),
+                        labels: pod.metadata.labels.unwrap_or_default().into_iter().collect(),
                         status: pod
                             .status
                             .and_then(|s| s.phase)
@@ -226,20 +226,23 @@ impl InfrastructureMonitor for KubernetesAdapter {
                     })
                     .collect();
 
-                Ok(resources)
+                Ok::<Vec<AdapterResource>, IntegrationError>(resources)
             }
         })
         .await
     }
 
     async fn get_resource_metrics(&self, id: &str) -> IntegrationResult<ResourceMetrics> {
-        let client = self.client()?;
-        let namespace = self.config.namespace.as_deref().unwrap_or("default");
+        // Create all owned values before the closure
+        let namespace_str = self.config.namespace.clone().unwrap_or_else(|| "default".to_string());
+        let id_string = id.to_string();
+        let client = self.client()?.clone();
+        let base = self.base.clone();
 
-        self.base.execute_with_resilience(move || {
+        base.execute_with_resilience(move || {
             let client_clone = client.clone();
-            let id_clone = id.to_string();
-            let namespace_clone = namespace.to_string();
+            let id_clone = id_string.clone();
+            let namespace_clone = namespace_str.clone();
 
             async move {
                 let pods: Api<Pod> = Api::namespaced(client_clone, &namespace_clone);
@@ -276,7 +279,7 @@ impl InfrastructureMonitor for KubernetesAdapter {
                             }
                         }
 
-                        Ok(ResourceMetrics {
+                        Ok::<ResourceMetrics, IntegrationError>(ResourceMetrics {
                             resource_id: id_clone,
                             cpu_percent: cpu_usage as f64,
                             memory_percent: memory_usage as f64,
@@ -292,7 +295,7 @@ impl InfrastructureMonitor for KubernetesAdapter {
     }
 
     async fn watch_resources(&self) -> IntegrationResult<mpsc::Receiver<ResourceEvent>> {
-        let client = self.client()?;
+        let client = self.client()?.clone();
         let namespace = self.config.namespace.clone().unwrap_or_else(|| "default".to_string());
         let buffer_size = self.config.max_watch_streams;
 
@@ -322,7 +325,7 @@ impl InfrastructureMonitor for KubernetesAdapter {
                                     name: pod.metadata.name.unwrap_or_default(),
                                     resource_type: "Pod".to_string(),
                                     namespace: pod.metadata.namespace,
-                                    labels: pod.metadata.labels.unwrap_or_default(),
+                                    labels: pod.metadata.labels.unwrap_or_default().into_iter().collect(),
                                     status: pod.status.and_then(|s| s.phase).unwrap_or_default(),
                                 },
                                 timestamp: chrono::Utc::now(),
@@ -364,7 +367,7 @@ impl InfrastructureMonitor for KubernetesAdapter {
                     action.parameters.get("tail_lines"),
                 ) {
                     let tail_lines = tail_lines.parse().unwrap_or(100);
-                    let container = action.parameters.get("container");
+                    let container = action.parameters.get("container").map(|s| s.as_str());
                     match self.get_pod_logs(pod_name, container, tail_lines).await {
                         Ok(logs) => Ok(ActionResult {
                             success: true,

@@ -68,13 +68,14 @@ impl PrometheusAdapter {
         T: for<'de> serde::Deserialize<'de>,
     {
         let url = format!("{}{}", self.config.url.trim_end_matches('/'), endpoint);
+        let base = self.base.clone();
+        let client = self.client.clone();
 
-        self.base.execute_with_resilience(move || {
-            let client = self.client.clone();
-            let url_clone = url.clone();
-
+        base.execute_with_resilience(move || {
+            let client = client.clone();
+            let url = url.clone();
             async move {
-                let mut request = client.get(&url_clone);
+                let mut request = client.get(&url);
 
                 request
                     .send()
@@ -129,25 +130,32 @@ impl TelemetryCollector for PrometheusAdapter {
 
         match response.data {
             Some(data) => {
+                let metric_name = query.metric_name.clone();
                 let metrics = data
                     .result
                     .into_iter()
-                    .flat_map(|result| match result {
-                        PrometheusResult::Matrix(matrix) => {
-                            matrix.values.into_iter().map(move |(ts, value)| Metric {
-                                name: query.metric_name.clone(),
-                                labels: matrix.metric.clone(),
-                                value: value,
-                                timestamp: DateTime::from_timestamp(ts as i64, 0).unwrap_or_default(),
-                            })
-                        }
-                        PrometheusResult::Vector(vector) => {
-                            vec![Metric {
-                                name: query.metric_name.clone(),
-                                labels: vector.metric,
-                                value: vector.value,
-                                timestamp: Utc::now(),
-                            }]
+                    .flat_map(|result| {
+                        let name = metric_name.clone();
+                        match result {
+                            PrometheusResult::Matrix(matrix) => {
+                                matrix.values.into_iter().map(move |(ts, value)| Metric {
+                                    name: name.clone(),
+                                    labels: matrix.metric.clone(),
+                                    value: value,
+                                    timestamp: DateTime::from_timestamp(ts as i64, 0).unwrap_or_default(),
+                                })
+                                .collect::<Vec<_>>()
+                                .into_iter()
+                            }
+                            PrometheusResult::Vector(vector) => {
+                                vec![Metric {
+                                    name: name.clone(),
+                                    labels: vector.metric,
+                                    value: vector.value,
+                                    timestamp: Utc::now(),
+                                }]
+                                .into_iter()
+                            }
                         }
                     })
                     .collect();
