@@ -71,22 +71,25 @@ impl DetectionRouter {
         }
 
         if !routed.iqr.is_empty() {
-            let result = self.iqr.detect(&routed.iqr).await.map_err(|e| {
-                Error::AnomalyDetection {
-                    message: format!("IQR detection failed: {}", e),
-                }
-            })?;
+            let result =
+                self.iqr
+                    .detect(&routed.iqr)
+                    .await
+                    .map_err(|e| Error::AnomalyDetection {
+                        message: format!("IQR detection failed: {}", e),
+                    })?;
             all_anomalies.extend(result.anomalies);
             total_time = total_time.max(result.processing_time_ms);
         }
 
         if let Some(ml) = &self.ml {
             if !routed.ml.is_empty() {
-                let result = ml.detect(&routed.ml).await.map_err(|e| {
-                    Error::AnomalyDetection {
+                let result = ml
+                    .detect(&routed.ml)
+                    .await
+                    .map_err(|e| Error::AnomalyDetection {
                         message: format!("ML detection failed: {}", e),
-                    }
-                })?;
+                    })?;
                 all_anomalies.extend(result.anomalies);
                 total_time = total_time.max(result.processing_time_ms);
             }
@@ -190,12 +193,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_metric(name: &str, value: f64) -> Metric {
-        Metric::gauge(
-            name.to_string(),
-            value,
-            ServiceId::new(),
-            HashMap::new(),
-        )
+        Metric::gauge(name.to_string(), value, ServiceId::new(), HashMap::new())
     }
 
     #[tokio::test]
@@ -203,8 +201,8 @@ mod tests {
         let router = DetectionRouter::new();
 
         let metrics = vec![
-            create_test_metric("cpu_usage", 95.0), // Statistical
-            create_test_metric("memory_usage", 100.0), // IQR
+            create_test_metric("cpu_usage", 95.0),         // Statistical
+            create_test_metric("memory_usage", 100.0),     // IQR
             create_test_metric("request_latency", 5000.0), // Would be ML if configured
         ];
 

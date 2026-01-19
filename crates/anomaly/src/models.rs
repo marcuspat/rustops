@@ -22,7 +22,7 @@ use tracing::{debug, info, warn};
 #[allow(dead_code)]
 pub struct ONNXModel {
     /// ONNX Runtime session (stub)
-    _session: (),  // Placeholder for ort::Session,
+    _session: (), // Placeholder for ort::Session,
     /// Model name
     name: String,
     /// Model version
@@ -48,7 +48,8 @@ impl ONNXModel {
         Err(Error::ModelLoading {
             model_name: name.into(),
             message: "ONNX Runtime integration is currently disabled. \
-                      Uncomment ort dependency in Cargo.toml to enable.".to_string(),
+                      Uncomment ort dependency in Cargo.toml to enable."
+                .to_string(),
         })
 
         /*
@@ -116,7 +117,8 @@ impl ONNXModel {
         Err(Error::ModelInference {
             model_name: self.name.clone(),
             message: "ONNX Runtime integration is currently disabled. \
-                      Uncomment ort dependency in Cargo.toml to enable.".to_string(),
+                      Uncomment ort dependency in Cargo.toml to enable."
+                .to_string(),
         })
 
         /*
@@ -237,9 +239,8 @@ impl MLDetector {
         }
 
         // Reshape to (1, n_features)
-        let array = Array2::from_shape_vec((1, n_features), data).map_err(|e| {
-            Error::invalid_input(format!("Failed to create feature array: {}", e))
-        })?;
+        let array = Array2::from_shape_vec((1, n_features), data)
+            .map_err(|e| Error::invalid_input(format!("Failed to create feature array: {}", e)))?;
 
         Ok(array)
     }

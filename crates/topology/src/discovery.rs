@@ -4,15 +4,15 @@
 //! Supports multiple discovery strategies including K8s API, service mesh, and metrics.
 
 use crate::{
-    model::{ServiceNode, DependencyEdge, ServiceType, HealthStatus, DependencyType, Protocol},
-    graph::ServiceGraph,
     events::{TopologyEvent, TopologyEventStore},
+    graph::ServiceGraph,
+    model::{DependencyEdge, DependencyType, HealthStatus, Protocol, ServiceNode, ServiceType},
 };
-use rustops_common::{ServiceId, Result};
+use chrono::Utc;
+use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, info, warn, error};
-use chrono::Utc;
+use tracing::{debug, error, info, warn};
 
 /// Discovery trait for pluggable discovery strategies
 #[async_trait::async_trait]
@@ -146,8 +146,9 @@ impl KubernetesDiscovery {
             kube::api::ListParams::default()
         };
 
-        let deployments = api.list(&list_params).await
-            .map_err(|e| rustops_common::Error::network(format!("Failed to list deployments: {}", e)))?;
+        let deployments = api.list(&list_params).await.map_err(|e| {
+            rustops_common::Error::network(format!("Failed to list deployments: {}", e))
+        })?;
 
         let mut services = Vec::new();
 
@@ -159,13 +160,40 @@ impl KubernetesDiscovery {
             let now = Utc::now();
             let service = ServiceNode {
                 id: ServiceId::new(),
-                name: Some(deployment.metadata.name.clone().unwrap_or_else(|| "unknown".to_string())),
-                namespace: deployment.metadata.namespace.clone().unwrap_or_else(|| "default".to_string()),
+                name: Some(
+                    deployment
+                        .metadata
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+                namespace: deployment
+                    .metadata
+                    .namespace
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
                 cluster: self.get_cluster_name(),
                 service_type: ServiceType::Deployment,
-                replicas: deployment.spec.as_ref().and_then(|s| s.replicas).map(|r| r as u32).unwrap_or(0),
-                labels: deployment.metadata.labels.clone().unwrap_or_default().into_iter().collect(),
-                annotations: deployment.metadata.annotations.clone().unwrap_or_default().into_iter().collect(),
+                replicas: deployment
+                    .spec
+                    .as_ref()
+                    .and_then(|s| s.replicas)
+                    .map(|r| r as u32)
+                    .unwrap_or(0),
+                labels: deployment
+                    .metadata
+                    .labels
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                annotations: deployment
+                    .metadata
+                    .annotations
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
                 health: self.get_deployment_health(&deployment),
                 created_at: now,
                 updated_at: now,
@@ -185,8 +213,12 @@ impl KubernetesDiscovery {
             None => kube::Api::all(self.client.clone()),
         };
 
-        let statefulsets = api.list(&kube::api::ListParams::default()).await
-            .map_err(|e| rustops_common::Error::network(format!("Failed to list statefulsets: {}", e)))?;
+        let statefulsets = api
+            .list(&kube::api::ListParams::default())
+            .await
+            .map_err(|e| {
+                rustops_common::Error::network(format!("Failed to list statefulsets: {}", e))
+            })?;
 
         let mut services = Vec::new();
 
@@ -198,13 +230,40 @@ impl KubernetesDiscovery {
             let now = Utc::now();
             let service = ServiceNode {
                 id: ServiceId::new(),
-                name: Some(statefulset.metadata.name.clone().unwrap_or_else(|| "unknown".to_string())),
-                namespace: statefulset.metadata.namespace.clone().unwrap_or_else(|| "default".to_string()),
+                name: Some(
+                    statefulset
+                        .metadata
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+                namespace: statefulset
+                    .metadata
+                    .namespace
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
                 cluster: self.get_cluster_name(),
                 service_type: ServiceType::StatefulSet,
-                replicas: statefulset.spec.as_ref().and_then(|s| s.replicas).map(|r| r as u32).unwrap_or(0),
-                labels: statefulset.metadata.labels.clone().unwrap_or_default().into_iter().collect(),
-                annotations: statefulset.metadata.annotations.clone().unwrap_or_default().into_iter().collect(),
+                replicas: statefulset
+                    .spec
+                    .as_ref()
+                    .and_then(|s| s.replicas)
+                    .map(|r| r as u32)
+                    .unwrap_or(0),
+                labels: statefulset
+                    .metadata
+                    .labels
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                annotations: statefulset
+                    .metadata
+                    .annotations
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
                 health: self.get_statefulset_health(&statefulset),
                 created_at: now,
                 updated_at: now,
@@ -224,8 +283,12 @@ impl KubernetesDiscovery {
             None => kube::Api::all(self.client.clone()),
         };
 
-        let daemonsets = api.list(&kube::api::ListParams::default()).await
-            .map_err(|e| rustops_common::Error::network(format!("Failed to list daemonsets: {}", e)))?;
+        let daemonsets = api
+            .list(&kube::api::ListParams::default())
+            .await
+            .map_err(|e| {
+                rustops_common::Error::network(format!("Failed to list daemonsets: {}", e))
+            })?;
 
         let mut services = Vec::new();
 
@@ -237,16 +300,40 @@ impl KubernetesDiscovery {
             let now = Utc::now();
             let service = ServiceNode {
                 id: ServiceId::new(),
-                name: Some(daemonset.metadata.name.clone().unwrap_or_else(|| "unknown".to_string())),
-                namespace: daemonset.metadata.namespace.clone().unwrap_or_else(|| "default".to_string()),
+                name: Some(
+                    daemonset
+                        .metadata
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+                namespace: daemonset
+                    .metadata
+                    .namespace
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
                 cluster: self.get_cluster_name(),
                 service_type: ServiceType::DaemonSet,
-                replicas: daemonset.status.as_ref()
+                replicas: daemonset
+                    .status
+                    .as_ref()
                     .and_then(|s| Some(s.number_ready))
                     .map(|r| r as u32)
                     .unwrap_or(0),
-                labels: daemonset.metadata.labels.clone().unwrap_or_default().into_iter().collect(),
-                annotations: daemonset.metadata.annotations.clone().unwrap_or_default().into_iter().collect(),
+                labels: daemonset
+                    .metadata
+                    .labels
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                annotations: daemonset
+                    .metadata
+                    .annotations
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
                 health: self.get_daemonset_health(&daemonset),
                 created_at: now,
                 updated_at: now,
@@ -266,7 +353,9 @@ impl KubernetesDiscovery {
             None => kube::Api::all(self.client.clone()),
         };
 
-        let pods = api.list(&kube::api::ListParams::default()).await
+        let pods = api
+            .list(&kube::api::ListParams::default())
+            .await
             .map_err(|e| rustops_common::Error::network(format!("Failed to list pods: {}", e)))?;
 
         let mut services = Vec::new();
@@ -284,15 +373,44 @@ impl KubernetesDiscovery {
             let now = Utc::now();
             let service = ServiceNode {
                 id: ServiceId::new(),
-                name: Some(pod.metadata.name.clone().unwrap_or_else(|| "unknown".to_string())),
-                namespace: pod.metadata.namespace.clone().unwrap_or_else(|| "default".to_string()),
+                name: Some(
+                    pod.metadata
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ),
+                namespace: pod
+                    .metadata
+                    .namespace
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
                 cluster: self.get_cluster_name(),
                 service_type: ServiceType::Deployment, // Treat pods as deployments for now
-                replicas: if pod.status.as_ref()
+                replicas: if pod
+                    .status
+                    .as_ref()
                     .and_then(|s| s.phase.as_ref())
-                    .map(|phase| phase == "Running") == Some(true) { 1 } else { 0 },
-                labels: pod.metadata.labels.clone().unwrap_or_default().into_iter().collect(),
-                annotations: pod.metadata.annotations.clone().unwrap_or_default().into_iter().collect(),
+                    .map(|phase| phase == "Running")
+                    == Some(true)
+                {
+                    1
+                } else {
+                    0
+                },
+                labels: pod
+                    .metadata
+                    .labels
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                annotations: pod
+                    .metadata
+                    .annotations
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
                 health: self.get_pod_health(&pod),
                 created_at: now,
                 updated_at: now,
@@ -326,7 +444,10 @@ impl KubernetesDiscovery {
         let api: kube::Api<k8s_openapi::api::networking::v1::NetworkPolicy> =
             kube::Api::all(self.client.clone());
 
-        match api.list(&kube::api::ListParams::default().labels("app.kubernetes.io/name=istio")).await {
+        match api
+            .list(&kube::api::ListParams::default().labels("app.kubernetes.io/name=istio"))
+            .await
+        {
             Ok(_) => {
                 // Istio is installed, discover virtual services
                 info!("Istio detected, discovering service mesh dependencies");
@@ -349,7 +470,10 @@ impl KubernetesDiscovery {
         let api: kube::Api<k8s_openapi::api::apps::v1::Deployment> =
             kube::Api::all(self.client.clone());
 
-        match api.list(&kube::api::ListParams::default().labels("app=linkerd")).await {
+        match api
+            .list(&kube::api::ListParams::default().labels("app=linkerd"))
+            .await
+        {
             Ok(_) => {
                 // Linkerd is installed
                 info!("Linkerd detected, discovering service mesh dependencies");
@@ -361,13 +485,18 @@ impl KubernetesDiscovery {
 
     /// Discover dependencies from network policies
     async fn discover_from_network_policies(&self) -> Result<Vec<DependencyEdge>> {
-        let api: kube::Api<k8s_openapi::api::networking::v1::NetworkPolicy> = match &self.namespace {
+        let api: kube::Api<k8s_openapi::api::networking::v1::NetworkPolicy> = match &self.namespace
+        {
             Some(ns) => kube::Api::namespaced(self.client.clone(), ns),
             None => kube::Api::all(self.client.clone()),
         };
 
-        let policies = api.list(&kube::api::ListParams::default()).await
-            .map_err(|e| rustops_common::Error::network(format!("Failed to list network policies: {}", e)))?;
+        let policies = api
+            .list(&kube::api::ListParams::default())
+            .await
+            .map_err(|e| {
+                rustops_common::Error::network(format!("Failed to list network policies: {}", e))
+            })?;
 
         let mut edges = Vec::new();
 
@@ -378,7 +507,10 @@ impl KubernetesDiscovery {
 
             // Simplified: just skip detailed network policy parsing for now
             // Full implementation would parse spec.pod_selector, spec.ingress, spec.ports
-            debug!("Skipping network policy parsing for: {:?}", policy.metadata.name);
+            debug!(
+                "Skipping network policy parsing for: {:?}",
+                policy.metadata.name
+            );
         }
 
         debug!("Discovered {} network policy dependencies", edges.len());
@@ -392,8 +524,12 @@ impl KubernetesDiscovery {
             None => kube::Api::all(self.client.clone()),
         };
 
-        let configmaps = api.list(&kube::api::ListParams::default()).await
-            .map_err(|e| rustops_common::Error::network(format!("Failed to list configmaps: {}", e)))?;
+        let configmaps = api
+            .list(&kube::api::ListParams::default())
+            .await
+            .map_err(|e| {
+                rustops_common::Error::network(format!("Failed to list configmaps: {}", e))
+            })?;
 
         let mut edges = Vec::new();
 
@@ -403,7 +539,10 @@ impl KubernetesDiscovery {
             }
 
             // Simplified: just skip detailed configmap parsing for now
-            debug!("Skipping configmap parsing for: {:?}", configmap.metadata.name);
+            debug!(
+                "Skipping configmap parsing for: {:?}",
+                configmap.metadata.name
+            );
         }
 
         debug!("Discovered {} environment-based dependencies", edges.len());
@@ -438,7 +577,10 @@ impl KubernetesDiscovery {
 
     /// Check if namespace is a system namespace
     fn is_system_namespace(&self, namespace: &str) -> bool {
-        matches!(namespace, "kube-system" | "kube-public" | "kube-node-lease" | "istio-system")
+        matches!(
+            namespace,
+            "kube-system" | "kube-public" | "kube-node-lease" | "istio-system"
+        )
     }
 
     /// Check if pod is a system pod
@@ -451,7 +593,10 @@ impl KubernetesDiscovery {
     }
 
     /// Get deployment health status
-    fn get_deployment_health(&self, deployment: &k8s_openapi::api::apps::v1::Deployment) -> HealthStatus {
+    fn get_deployment_health(
+        &self,
+        deployment: &k8s_openapi::api::apps::v1::Deployment,
+    ) -> HealthStatus {
         if let Some(status) = &deployment.status {
             if let Some(updated_replicas) = status.updated_replicas {
                 if let Some(replicas) = deployment.spec.as_ref().and_then(|s| s.replicas) {
@@ -467,7 +612,10 @@ impl KubernetesDiscovery {
     }
 
     /// Get statefulset health status
-    fn get_statefulset_health(&self, statefulset: &k8s_openapi::api::apps::v1::StatefulSet) -> HealthStatus {
+    fn get_statefulset_health(
+        &self,
+        statefulset: &k8s_openapi::api::apps::v1::StatefulSet,
+    ) -> HealthStatus {
         if let Some(status) = &statefulset.status {
             if let Some(updated_replicas) = status.updated_replicas {
                 if let Some(replicas) = statefulset.spec.as_ref().and_then(|s| s.replicas) {
@@ -483,7 +631,10 @@ impl KubernetesDiscovery {
     }
 
     /// Get daemonset health status
-    fn get_daemonset_health(&self, daemonset: &k8s_openapi::api::apps::v1::DaemonSet) -> HealthStatus {
+    fn get_daemonset_health(
+        &self,
+        daemonset: &k8s_openapi::api::apps::v1::DaemonSet,
+    ) -> HealthStatus {
         if let Some(status) = &daemonset.status {
             let number_ready = status.number_ready;
             let desired_number_scheduled = status.desired_number_scheduled;
@@ -533,7 +684,8 @@ impl KubernetesDiscovery {
 
     /// Parse service URL from configmap value
     fn parse_service_url(&self, value: &str) -> Option<String> {
-        value.strip_prefix("http://")
+        value
+            .strip_prefix("http://")
             .or(value.strip_prefix("https://"))
             .map(|s| s.split('/').next().unwrap_or("").to_string())
             .filter(|s| !s.is_empty())
@@ -553,8 +705,14 @@ impl KubernetesDiscovery {
                 edge_type: DependencyType::Calls,
                 metadata: {
                     let mut meta = HashMap::new();
-                    meta.insert("url".to_string(), serde_json::Value::String(service_url.to_string()));
-                    meta.insert("protocol".to_string(), serde_json::Value::String("http".to_string()));
+                    meta.insert(
+                        "url".to_string(),
+                        serde_json::Value::String(service_url.to_string()),
+                    );
+                    meta.insert(
+                        "protocol".to_string(),
+                        serde_json::Value::String("http".to_string()),
+                    );
                     meta
                 },
             })
@@ -580,8 +738,14 @@ impl KubernetesDiscovery {
             edge_type: DependencyType::Calls,
             metadata: {
                 let mut meta = HashMap::new();
-                meta.insert("namespace".to_string(), serde_json::Value::String(namespace.to_string()));
-                meta.insert("pod_selector".to_string(), serde_json::Value::String(format!("{:?}", pod_selector)));
+                meta.insert(
+                    "namespace".to_string(),
+                    serde_json::Value::String(namespace.to_string()),
+                );
+                meta.insert(
+                    "pod_selector".to_string(),
+                    serde_json::Value::String(format!("{:?}", pod_selector)),
+                );
                 meta
             },
         })
@@ -667,9 +831,13 @@ impl Discovery for PrometheusDiscovery {
                             if values.len() > 1 {
                                 if let Some(value) = values.get(1) {
                                     if let Some(num) = value.as_f64() {
-                                        meta.insert("rate".to_string(), serde_json::Value::Number(
-                                            serde_json::Number::from_f64(num).unwrap_or(serde_json::Number::from(0))
-                                        ));
+                                        meta.insert(
+                                            "rate".to_string(),
+                                            serde_json::Value::Number(
+                                                serde_json::Number::from_f64(num)
+                                                    .unwrap_or(serde_json::Number::from(0)),
+                                            ),
+                                        );
                                     }
                                 }
                             }
@@ -697,17 +865,21 @@ impl Discovery for PrometheusDiscovery {
 impl PrometheusDiscovery {
     /// Query Prometheus API
     async fn query_prometheus(&self, query: &str) -> Result<PrometheusResponse> {
-        let response = self.client
+        let response = self
+            .client
             .post(&format!("{}/api/v1/query", self.url))
             .json(&serde_json::json!({
                 "query": query
             }))
             .send()
             .await
-            .map_err(|e| rustops_common::Error::network(format!("Failed to query Prometheus: {}", e)))?;
+            .map_err(|e| {
+                rustops_common::Error::network(format!("Failed to query Prometheus: {}", e))
+            })?;
 
-        let response = response.json::<PrometheusResponse>().await
-            .map_err(|e| rustops_common::Error::network(format!("Failed to parse Prometheus response: {}", e)))?;
+        let response = response.json::<PrometheusResponse>().await.map_err(|e| {
+            rustops_common::Error::network(format!("Failed to parse Prometheus response: {}", e))
+        })?;
 
         Ok(response)
     }
@@ -753,7 +925,10 @@ impl DiscoveryManager {
     }
 
     /// Run all discovery implementations and update the graph
-    pub async fn discover_and_update(&self, graph: &mut ServiceGraph) -> Result<TopologyDiscoveryResult> {
+    pub async fn discover_and_update(
+        &self,
+        graph: &mut ServiceGraph,
+    ) -> Result<TopologyDiscoveryResult> {
         let mut all_services = Vec::new();
         let mut all_edges = Vec::new();
         let mut failed_discoveries = Vec::new();
@@ -767,7 +942,11 @@ impl DiscoveryManager {
             // Discover services
             match discovery.discover_services().await {
                 Ok(services) => {
-                    info!("Discovery '{}' found {} services", discovery.name(), services.len());
+                    info!(
+                        "Discovery '{}' found {} services",
+                        discovery.name(),
+                        services.len()
+                    );
                     all_services.extend(services);
                 }
                 Err(e) => {
@@ -779,11 +958,19 @@ impl DiscoveryManager {
             // Discover dependencies
             match discovery.discover_dependencies().await {
                 Ok(edges) => {
-                    info!("Discovery '{}' found {} dependencies", discovery.name(), edges.len());
+                    info!(
+                        "Discovery '{}' found {} dependencies",
+                        discovery.name(),
+                        edges.len()
+                    );
                     all_edges.extend(edges);
                 }
                 Err(e) => {
-                    error!("Discovery '{}' failed to discover dependencies: {}", discovery.name(), e);
+                    error!(
+                        "Discovery '{}' failed to discover dependencies: {}",
+                        discovery.name(),
+                        e
+                    );
                     // Don't fail the entire discovery for dependency errors
                 }
             }
@@ -794,7 +981,8 @@ impl DiscoveryManager {
         let mut updated_services = 0;
         let mut removed_services = 0;
 
-        let existing_services: HashSet<_> = graph.get_all_services().into_iter().map(|s| s.id).collect();
+        let existing_services: HashSet<_> =
+            graph.get_all_services().into_iter().map(|s| s.id).collect();
         let discovered_service_ids: HashSet<_> = all_services.iter().map(|s| s.id).collect();
         let total_services_discovered = all_services.len();
         let total_edges_discovered = all_edges.len();
@@ -839,7 +1027,10 @@ impl DiscoveryManager {
     }
 
     /// Run discovery for a specific source
-    pub async fn discover_from(&self, source: &str) -> Result<(Vec<ServiceNode>, Vec<DependencyEdge>)> {
+    pub async fn discover_from(
+        &self,
+        source: &str,
+    ) -> Result<(Vec<ServiceNode>, Vec<DependencyEdge>)> {
         for discovery in &self.discoveries {
             if discovery.name() == source {
                 let services = discovery.discover_services().await?;
@@ -907,13 +1098,19 @@ mod tests {
     #[tokio::test]
     async fn test_kubernetes_discovery_creation() {
         // This test would require a real Kubernetes cluster
-        // For now, we just test the creation
-        let config = kube::Config::new().unwrap();
-        let client = kube::Client::new(config).unwrap();
-
-        let discovery = KubernetesDiscovery::new(client, Some("default".to_string()));
-        assert_eq!(discovery.name(), "kubernetes");
-        assert!(discovery.is_enabled());
+        // For now, we just test the creation - skip if no kubeconfig
+        match kube::Config::infer().await {
+            Ok(config) => {
+                let client = kube::Client::try_from(config).unwrap();
+                let discovery = KubernetesDiscovery::new(client, Some("default".to_string()));
+                assert_eq!(discovery.name(), "kubernetes");
+                assert!(discovery.is_enabled());
+            }
+            Err(_) => {
+                // Skip test if no kubeconfig available
+                println!("Skipping kubernetes discovery test - no kubeconfig found");
+            }
+        }
     }
 
     #[tokio::test]

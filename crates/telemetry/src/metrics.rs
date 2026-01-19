@@ -3,8 +3,7 @@
 //! Metrics for monitoring the telemetry pipeline itself.
 
 use prometheus::{
-    register_counter_vec, register_gauge_vec, register_histogram, CounterVec, GaugeVec,
-    Histogram,
+    register_counter_vec, register_gauge_vec, register_histogram, CounterVec, GaugeVec, Histogram,
 };
 use std::sync::Arc;
 
@@ -89,10 +88,7 @@ mod tests {
 
         metrics.metrics_collected.with_label_values(&["test"]).inc();
         assert_eq!(
-            metrics
-                .metrics_collected
-                .with_label_values(&["test"])
-                .get() as u64,
+            metrics.metrics_collected.with_label_values(&["test"]).get() as u64,
             1
         );
     }

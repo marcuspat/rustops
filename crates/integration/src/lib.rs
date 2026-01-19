@@ -11,26 +11,28 @@
 #![warn(clippy::all)]
 
 pub mod adapter;
-pub mod resilience;
 pub mod circuit_breaker;
+pub mod infrastructure;
+pub mod itsm;
+pub mod prometheus;
 pub mod rate_limiter;
+pub mod resilience;
 pub mod retry;
 pub mod telemetry;
-pub mod itsm;
-pub mod infrastructure;
-pub mod prometheus;
 
 // Re-exports
-pub use adapter::{IntegrationAdapter, TelemetryCollector, ITSMNotifier, InfrastructureMonitor, TelemetryEvent};
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
-pub use rate_limiter::{RateLimiter, RateLimiterConfig};
-pub use retry::{RetryConfig, retry_with_backoff};
-pub use resilience::{IntegrationError, IntegrationResult, HealthStatus};
-pub use prometheus::{
-    PrometheusAdapter, PrometheusQuery, AlertRule, ServiceDiscoveryConfig, AlertEvaluation,
-    AlertStatus, ServiceTarget, KubernetesSDConfig, StaticTarget, RelabelConfig,
-    RelabelAction,
+pub use adapter::{
+    ITSMNotifier, InfrastructureMonitor, IntegrationAdapter, TelemetryCollector, TelemetryEvent,
 };
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
+pub use prometheus::{
+    AlertEvaluation, AlertRule, AlertStatus, KubernetesSDConfig, PrometheusAdapter,
+    PrometheusQuery, RelabelAction, RelabelConfig, ServiceDiscoveryConfig, ServiceTarget,
+    StaticTarget,
+};
+pub use rate_limiter::{RateLimiter, RateLimiterConfig};
+pub use resilience::{HealthStatus, IntegrationError, IntegrationResult};
+pub use retry::{retry_with_backoff, RetryConfig};
 
 /// Integration kinds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -26,7 +26,9 @@ pub trait IdType: Clone + Copy + PartialEq + Eq + PartialOrd + Ord + Send + Sync
 /// Macro to implement newtype ID wrapper
 macro_rules! impl_id {
     ($name:ident, $prefix:expr) => {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[derive(
+            Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+        )]
         #[serde(transparent)]
         pub struct $name(Uuid);
 

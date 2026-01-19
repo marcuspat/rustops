@@ -56,11 +56,7 @@ impl MetricHistory {
             return 0.0;
         }
         let mean = self.mean();
-        let variance = self
-            .values
-            .iter()
-            .map(|v| (v - mean).powi(2))
-            .sum::<f64>()
+        let variance = self.values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
             / (self.values.len() - 1) as f64;
         variance.sqrt()
     }
@@ -113,11 +109,8 @@ impl AnomalyDetector for ZScoreDetector {
             }
 
             let mean = values.iter().sum::<f64>() / values.len() as f64;
-            let variance = values
-                .iter()
-                .map(|v| (v - mean).powi(2))
-                .sum::<f64>()
-                / (values.len() - 1) as f64;
+            let variance =
+                values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
             let stddev = variance.sqrt();
 
             if stddev == 0.0 {
@@ -287,12 +280,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_metric(name: &str, value: f64) -> Metric {
-        Metric::gauge(
-            name.to_string(),
-            value,
-            ServiceId::new(),
-            HashMap::new(),
-        )
+        Metric::gauge(name.to_string(), value, ServiceId::new(), HashMap::new())
     }
 
     #[test]

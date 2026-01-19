@@ -3,7 +3,7 @@
 // Implements retry with exponential backoff for transient failures
 
 use std::time::Duration;
-use tracing::{warn};
+use tracing::warn;
 
 /// Retry configuration
 #[derive(Debug, Clone)]
@@ -37,10 +37,7 @@ impl Default for RetryConfig {
 }
 
 /// Execute operation with retry logic
-pub async fn retry_with_backoff<F, Fut, T, E>(
-    config: RetryConfig,
-    mut operation: F,
-) -> Result<T, E>
+pub async fn retry_with_backoff<F, Fut, T, E>(config: RetryConfig, mut operation: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
@@ -76,14 +73,13 @@ where
 
                 // Calculate next delay with exponential backoff
                 current_delay = std::cmp::min(
-                    Duration::from_secs_f64(
-                        current_delay.as_secs_f64() * config.multiplier
-                    ),
+                    Duration::from_secs_f64(current_delay.as_secs_f64() * config.multiplier),
                     config.max_interval,
                 );
 
                 // Add simple jitter (50-100% of delay)
-                let jitter_ms = (current_delay.as_millis() as f64 * config.randomization_factor) as u64;
+                let jitter_ms =
+                    (current_delay.as_millis() as f64 * config.randomization_factor) as u64;
                 if jitter_ms > 0 {
                     use std::time::{SystemTime, UNIX_EPOCH};
                     let nanos = SystemTime::now()
@@ -99,10 +95,7 @@ where
 }
 
 /// Execute operation with retry logic (simplified)
-pub async fn retry_simple<F, Fut, T, E>(
-    max_attempts: u32,
-    operation: F,
-) -> Result<T, E>
+pub async fn retry_simple<F, Fut, T, E>(max_attempts: u32, operation: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
@@ -140,14 +133,12 @@ mod tests {
     async fn test_retry_success_after_failure() {
         let mut attempts = 0;
 
-        let result = retry_simple(3, || {
-            async move {
-                attempts += 1;
-                if attempts < 3 {
-                    Err("temporary failure")
-                } else {
-                    Ok("success")
-                }
+        let result = retry_simple(3, || async move {
+            attempts += 1;
+            if attempts < 3 {
+                Err("temporary failure")
+            } else {
+                Ok("success")
             }
         })
         .await;
@@ -159,10 +150,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_exhausts_attempts() {
-        let result = retry_simple(3, || {
-            async { Err::<(), _>("persistent failure") }
-        })
-        .await;
+        let result = retry_simple(3, || async { Err::<(), _>("persistent failure") }).await;
 
         assert!(result.is_err());
     }

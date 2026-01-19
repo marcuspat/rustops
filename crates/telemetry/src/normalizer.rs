@@ -2,8 +2,8 @@
 //!
 //! Normalizes telemetry data from various formats into a standard format.
 
-use rustops_common::{Error, LogEntry, Metric, MetricType, Result, ServiceId};
 use rustops_common::telemetry::LogLevel;
+use rustops_common::{Error, LogEntry, Metric, MetricType, Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -101,16 +101,20 @@ impl TelemetryNormalizer {
             MetricType::Gauge
         };
 
-        Ok(Metric::new(name, metric_type, value, self.service_id, labels))
+        Ok(Metric::new(
+            name,
+            metric_type,
+            value,
+            self.service_id,
+            labels,
+        ))
     }
 
     /// Normalize OpenTelemetry metric format
     fn normalize_otel_metric(&self, raw: &str) -> Result<Metric> {
         // Parse OTEL metric JSON format
-        let value: serde_json::Value = serde_json::from_str(raw).map_err(|e| {
-            Error::Parse {
-                message: format!("invalid OTEL metric JSON: {}", e),
-            }
+        let value: serde_json::Value = serde_json::from_str(raw).map_err(|e| Error::Parse {
+            message: format!("invalid OTEL metric JSON: {}", e),
         })?;
 
         let name = value
@@ -147,10 +151,8 @@ impl TelemetryNormalizer {
 
     /// Normalize JSON log format
     fn normalize_json_log(&self, raw: &str) -> Result<LogEntry> {
-        let value: serde_json::Value = serde_json::from_str(raw).map_err(|e| {
-            Error::Parse {
-                message: format!("invalid JSON log: {}", e),
-            }
+        let value: serde_json::Value = serde_json::from_str(raw).map_err(|e| Error::Parse {
+            message: format!("invalid JSON log: {}", e),
         })?;
 
         let level = value
@@ -199,23 +201,21 @@ impl TelemetryNormalizer {
         };
 
         // Extract message (remove timestamp and level)
-        let message = raw
-            .split("]")
-            .last()
-            .unwrap_or(raw)
-            .trim()
-            .to_string();
+        let message = raw.split("]").last().unwrap_or(raw).trim().to_string();
 
-        Ok(LogEntry::new(level, message, self.service_id, HashMap::new()))
+        Ok(LogEntry::new(
+            level,
+            message,
+            self.service_id,
+            HashMap::new(),
+        ))
     }
 
     /// Normalize Fluentd log format
     fn normalize_fluentd_log(&self, raw: &str) -> Result<LogEntry> {
         // Fluentd in_forward format: JSON with 'log' field
-        let value: serde_json::Value = serde_json::from_str(raw).map_err(|e| {
-            Error::Parse {
-                message: format!("invalid Fluentd format: {}", e),
-            }
+        let value: serde_json::Value = serde_json::from_str(raw).map_err(|e| Error::Parse {
+            message: format!("invalid Fluentd format: {}", e),
         })?;
 
         let log = value
@@ -261,7 +261,10 @@ mod tests {
         let normalizer = TelemetryNormalizer::new(service_id);
 
         let metric = normalizer
-            .normalize_metric(r#"http_requests_total{method="post"} 1027"#, TelemetryFormat::Prometheus)
+            .normalize_metric(
+                r#"http_requests_total{method="post"} 1027"#,
+                TelemetryFormat::Prometheus,
+            )
             .unwrap();
 
         assert_eq!(metric.name, "http_requests_total");
@@ -289,7 +292,10 @@ mod tests {
         let normalizer = TelemetryNormalizer::new(service_id);
 
         let log = normalizer
-            .normalize_log("[ERROR] Database connection failed", TelemetryFormat::TextLog)
+            .normalize_log(
+                "[ERROR] Database connection failed",
+                TelemetryFormat::TextLog,
+            )
             .unwrap();
 
         assert_eq!(log.level, LogLevel::Error);

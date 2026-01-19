@@ -5,12 +5,12 @@
 //! and service discovery configurations.
 
 use rustops_integration::{
+    adapter::IntegrationConfig,
     prometheus::{
-        PrometheusAdapter, ServiceDiscoveryConfig, KubernetesSDConfig,
-        StaticTarget, RelabelConfig, RelabelAction, AlertRule,
+        AlertRule, KubernetesSDConfig, PrometheusAdapter, RelabelAction, RelabelConfig,
+        ServiceDiscoveryConfig, StaticTarget,
     },
     CircuitBreakerConfig, RateLimiterConfig, RetryConfig,
-    adapter::IntegrationConfig,
 };
 use std::collections::HashMap;
 
@@ -69,8 +69,7 @@ pub fn create_production_adapter() -> PrometheusAdapter {
 pub fn kubernetes_service_discovery() -> ServiceDiscoveryConfig {
     ServiceDiscoveryConfig {
         kubernetes_sd: Some(KubernetesSDConfig {
-            namespaces: vec
-![
+            namespaces: vec![
                 "default".to_string(),
                 "kube-system".to_string(),
                 "monitoring".to_string(),
@@ -82,13 +81,9 @@ pub fn kubernetes_service_discovery() -> ServiceDiscoveryConfig {
             },
         }),
         static_configs: None,
-        relabel_configs: Some(vec
-![
+        relabel_configs: Some(vec![
             RelabelConfig {
-                source_labels: vec
-![
-                    "__meta_kubernetes_pod_label_app".to_string(),
-                ],
+                source_labels: vec!["__meta_kubernetes_pod_label_app".to_string()],
                 separator: Some("|".to_string()),
                 regex: Some("prometheus".to_string()),
                 modulus: None,
@@ -97,10 +92,7 @@ pub fn kubernetes_service_discovery() -> ServiceDiscoveryConfig {
                 target_label: None,
             },
             RelabelConfig {
-                source_labels: vec
-![
-                    "__meta_kubernetes_pod_name".to_string(),
-                ],
+                source_labels: vec!["__meta_kubernetes_pod_name".to_string()],
                 separator: Some("_".to_string()),
                 regex: None,
                 modulus: None,
@@ -116,11 +108,9 @@ pub fn kubernetes_service_discovery() -> ServiceDiscoveryConfig {
 pub fn static_service_discovery() -> ServiceDiscoveryConfig {
     ServiceDiscoveryConfig {
         kubernetes_sd: None,
-        static_configs: Some(vec
-![
+        static_configs: Some(vec![
             StaticTarget {
-                targets: vec
-![
+                targets: vec![
                     "prometheus-1:9090".to_string(),
                     "prometheus-2:9090".to_string(),
                 ],
@@ -132,8 +122,7 @@ pub fn static_service_discovery() -> ServiceDiscoveryConfig {
                 },
             },
             StaticTarget {
-                targets: vec
-![
+                targets: vec![
                     "node-exporter-1:9100".to_string(),
                     "node-exporter-2:9100".to_string(),
                 ],
@@ -150,10 +139,8 @@ pub fn static_service_discovery() -> ServiceDiscoveryConfig {
 }
 
 /// Example alert rules for production monitoring
-pub fn production_alert_rules() -> Vec
-<AlertRule> {
-    vec
-![
+pub fn production_alert_rules() -> Vec<AlertRule> {
+    vec![
         AlertRule {
             name: "prometheus_down".to_string(),
             expression: "up{job=\"prometheus\"} == 0".to_string(),
@@ -167,15 +154,25 @@ pub fn production_alert_rules() -> Vec
             },
             annotations: {
                 let mut annotations = HashMap::new();
-                annotations.insert("summary".to_string(), "Prometheus server is down".to_string());
-                annotations.insert("description".to_string(), "Prometheus server has been down for more than 5 minutes".to_string());
-                annotations.insert("runbook_url".to_string(), "https://runbooks.example.com/prometheus-down".to_string());
+                annotations.insert(
+                    "summary".to_string(),
+                    "Prometheus server is down".to_string(),
+                );
+                annotations.insert(
+                    "description".to_string(),
+                    "Prometheus server has been down for more than 5 minutes".to_string(),
+                );
+                annotations.insert(
+                    "runbook_url".to_string(),
+                    "https://runbooks.example.com/prometheus-down".to_string(),
+                );
                 annotations
             },
         },
         AlertRule {
             name: "high_error_rate".to_string(),
-            expression: "rate(prometheus_http_requests_total{status=~\"5..\"}[5m]) > 0.1".to_string(),
+            expression: "rate(prometheus_http_requests_total{status=~\"5..\"}[5m]) > 0.1"
+                .to_string(),
             duration: "10m".to_string(),
             labels: {
                 let mut labels = HashMap::new();
@@ -186,8 +183,14 @@ pub fn production_alert_rules() -> Vec
             },
             annotations: {
                 let mut annotations = HashMap::new();
-                annotations.insert("summary".to_string(), "High error rate detected".to_string());
-                annotations.insert("description".to_string(), "HTTP error rate has been above 10% for 10 minutes".to_string());
+                annotations.insert(
+                    "summary".to_string(),
+                    "High error rate detected".to_string(),
+                );
+                annotations.insert(
+                    "description".to_string(),
+                    "HTTP error rate has been above 10% for 10 minutes".to_string(),
+                );
                 annotations
             },
         },
@@ -205,8 +208,14 @@ pub fn production_alert_rules() -> Vec
             annotations: {
                 let mut annotations = HashMap::new();
                 annotations.insert("summary".to_string(), "TSDB compaction failed".to_string());
-                annotations.insert("description".to_string(), "Prometheus TSDB compaction has failed".to_string());
-                annotations.insert("runbook_url".to_string(), "https://runbooks.example.com/prometheus-tsdb-issues".to_string());
+                annotations.insert(
+                    "description".to_string(),
+                    "Prometheus TSDB compaction has failed".to_string(),
+                );
+                annotations.insert(
+                    "runbook_url".to_string(),
+                    "https://runbooks.example.com/prometheus-tsdb-issues".to_string(),
+                );
                 annotations
             },
         },
@@ -268,13 +277,9 @@ pub fn create_development_adapter() -> PrometheusAdapter {
 pub fn federated_prometheus_config() -> ServiceDiscoveryConfig {
     ServiceDiscoveryConfig {
         kubernetes_sd: None,
-        static_configs: Some(vec
-![
+        static_configs: Some(vec![
             StaticTarget {
-                targets: vec
-![
-                    "prometheus-primary:9090".to_string(),
-                ],
+                targets: vec!["prometheus-primary:9090".to_string()],
                 labels: {
                     let mut labels = HashMap::new();
                     labels.insert("role".to_string(), "primary".to_string());
@@ -282,8 +287,7 @@ pub fn federated_prometheus_config() -> ServiceDiscoveryConfig {
                 },
             },
             StaticTarget {
-                targets: vec
-![
+                targets: vec![
                     "prometheus-remote-1:9090".to_string(),
                     "prometheus-remote-2:9090".to_string(),
                 ],

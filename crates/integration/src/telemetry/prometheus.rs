@@ -3,15 +3,16 @@
 // Implements Prometheus scrape and Remote Write protocols
 
 use async_trait::async_trait;
-use reqwest::Client;
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
 
 use crate::adapter::{
-    BaseAdapter, TelemetryCollector, IntegrationKind, MetricQuery, Metric, LogQuery, LogStream, TraceQuery, Trace, TelemetryEvent,
+    BaseAdapter, IntegrationKind, LogQuery, LogStream, Metric, MetricQuery, TelemetryCollector,
+    TelemetryEvent, Trace, TraceQuery,
 };
-use crate::resilience::{IntegrationError, IntegrationResult, HealthStatus};
+use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
 use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 
 /// Prometheus adapter configuration
@@ -54,12 +55,13 @@ impl PrometheusAdapter {
             RetryConfig::default(),
         );
 
-        let client = Client::builder()
-            .timeout(config.timeout)
-            .build()
-            .unwrap();
+        let client = Client::builder().timeout(config.timeout).build().unwrap();
 
-        Self { base, config, client }
+        Self {
+            base,
+            config,
+            client,
+        }
     }
 
     /// Query Prometheus API
@@ -107,7 +109,8 @@ impl TelemetryCollector for PrometheusAdapter {
         // Build PromQL query
         let mut promql = query.metric_name.clone();
         if !query.labels.is_empty() {
-            let labels: Vec<String> = query.labels
+            let labels: Vec<String> = query
+                .labels
                 .iter()
                 .map(|(k, v)| format!("{}=\"{}\"", k, v))
                 .collect();
@@ -137,25 +140,25 @@ impl TelemetryCollector for PrometheusAdapter {
                     .flat_map(|result| {
                         let name = metric_name.clone();
                         match result {
-                            PrometheusResult::Matrix(matrix) => {
-                                matrix.values.into_iter().map(move |(ts, value)| Metric {
+                            PrometheusResult::Matrix(matrix) => matrix
+                                .values
+                                .into_iter()
+                                .map(move |(ts, value)| Metric {
                                     name: name.clone(),
                                     labels: matrix.metric.clone(),
-                                    value: value,
-                                    timestamp: DateTime::from_timestamp(ts as i64, 0).unwrap_or_default(),
+                                    value,
+                                    timestamp: DateTime::from_timestamp(ts as i64, 0)
+                                        .unwrap_or_default(),
                                 })
                                 .collect::<Vec<_>>()
-                                .into_iter()
-                            }
-                            PrometheusResult::Vector(vector) => {
-                                vec![Metric {
-                                    name: name.clone(),
-                                    labels: vector.metric,
-                                    value: vector.value,
-                                    timestamp: Utc::now(),
-                                }]
-                                .into_iter()
-                            }
+                                .into_iter(),
+                            PrometheusResult::Vector(vector) => vec![Metric {
+                                name: name.clone(),
+                                labels: vector.metric,
+                                value: vector.value,
+                                timestamp: Utc::now(),
+                            }]
+                            .into_iter(),
                         }
                     })
                     .collect();
@@ -200,7 +203,10 @@ impl crate::adapter::IntegrationAdapter for PrometheusAdapter {
     }
 
     async fn health_check(&self) -> IntegrationResult<HealthStatus> {
-        match self.query_api::<serde_json::Value>("/api/v1/status/config").await {
+        match self
+            .query_api::<serde_json::Value>("/api/v1/status/config")
+            .await
+        {
             Ok(_) => Ok(HealthStatus::Healthy),
             Err(e) => {
                 error!("Prometheus health check failed: {}", e);
@@ -261,8 +267,8 @@ struct PrometheusVector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::{MockServer, Mock, ResponseTemplate};
     use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
     async fn test_prometheus_query() {

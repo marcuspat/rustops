@@ -210,11 +210,7 @@ pub enum SpanStatus {
 
 impl TraceSpan {
     /// Create a new root span (no parent)
-    pub fn root(
-        trace_id: TraceId,
-        name: impl Into<String>,
-        service_id: ServiceId,
-    ) -> Self {
+    pub fn root(trace_id: TraceId, name: impl Into<String>, service_id: ServiceId) -> Self {
         Self {
             trace_id,
             span_id: uuid::Uuid::new_v4(),
@@ -280,7 +276,12 @@ mod tests {
     #[test]
     fn test_log_entry() {
         let service_id = ServiceId::new();
-        let log = LogEntry::new(LogLevel::Error, "Database connection failed", service_id, HashMap::new());
+        let log = LogEntry::new(
+            LogLevel::Error,
+            "Database connection failed",
+            service_id,
+            HashMap::new(),
+        );
 
         assert_eq!(log.level, LogLevel::Error);
         assert_eq!(log.message, "Database connection failed");
@@ -313,7 +314,12 @@ mod tests {
     #[test]
     fn test_metric_serialization() {
         let service_id = ServiceId::new();
-        let metric = Metric::counter("requests_total".to_string(), 42.0, service_id, HashMap::new());
+        let metric = Metric::counter(
+            "requests_total".to_string(),
+            42.0,
+            service_id,
+            HashMap::new(),
+        );
 
         let json = serde_json::to_string(&metric).unwrap();
         let deserialized: Metric = serde_json::from_str(&json).unwrap();

@@ -2,10 +2,10 @@
 //!
 //! Core domain models for service topology following DDD patterns.
 
-use rustops_common::{ServiceId, Result};
+use chrono::{DateTime, Utc};
+use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 use tracing::warn;
 
 /// Service node in the topology graph
@@ -164,9 +164,13 @@ impl DependencyEdge {
     }
 
     /// Add metadata to dependency
-    pub fn with_metadata(mut self, key: impl Into<String>, value: impl serde::Serialize) -> Result<Self> {
-        let json_value = serde_json::to_value(value)
-            .map_err(|e| rustops_common::Error::Serialization {
+    pub fn with_metadata(
+        mut self,
+        key: impl Into<String>,
+        value: impl serde::Serialize,
+    ) -> Result<Self> {
+        let json_value =
+            serde_json::to_value(value).map_err(|e| rustops_common::Error::Serialization {
                 message: format!("Failed to serialize metadata: {}", e),
             })?;
         self.metadata.insert(key.into(), json_value);
@@ -180,7 +184,10 @@ impl DependencyEdge {
 
     /// Check if this is a data dependency
     pub fn is_data(&self) -> bool {
-        matches!(self.edge_type, DependencyType::Reads | DependencyType::Writes)
+        matches!(
+            self.edge_type,
+            DependencyType::Reads | DependencyType::Writes
+        )
     }
 
     /// Get dependency weight for graph algorithms
@@ -544,9 +551,13 @@ impl DependencyEdgeBuilder {
     }
 
     /// Add metadata
-    pub fn with_metadata(mut self, key: impl Into<String>, value: impl serde::Serialize) -> Result<Self> {
-        let json_value = serde_json::to_value(value)
-            .map_err(|e| rustops_common::Error::Serialization {
+    pub fn with_metadata(
+        mut self,
+        key: impl Into<String>,
+        value: impl serde::Serialize,
+    ) -> Result<Self> {
+        let json_value =
+            serde_json::to_value(value).map_err(|e| rustops_common::Error::Serialization {
                 message: format!("Failed to serialize metadata: {}", e),
             })?;
         self.dependency.metadata.insert(key.into(), json_value);
@@ -621,13 +632,17 @@ mod tests {
         let to = ServiceId::new();
         let dependency = DependencyEdge::builder(from, to)
             .with_type(DependencyType::Reads)
-            .unwrap()
             .with_metadata("rate".to_string(), 100.0)
             .unwrap()
             .build();
 
         assert_eq!(dependency.edge_type, DependencyType::Reads);
-        assert_eq!(dependency.metadata.get("rate"), Some(&serde_json::Value::Number(serde_json::Number::from_f64(100.0).unwrap())));
+        assert_eq!(
+            dependency.metadata.get("rate"),
+            Some(&serde_json::Value::Number(
+                serde_json::Number::from_f64(100.0).unwrap()
+            ))
+        );
         assert!(dependency.is_data());
     }
 

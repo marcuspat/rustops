@@ -2,10 +2,10 @@
 //
 // Provides a consistent interface across all external system integrations
 
+use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
+use crate::{CircuitBreaker, CircuitBreakerConfig, RateLimiter, RateLimiterConfig, RetryConfig};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use crate::resilience::{IntegrationError, IntegrationResult, HealthStatus};
-use crate::{CircuitBreaker, CircuitBreakerConfig, RateLimiter, RateLimiterConfig, RetryConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;

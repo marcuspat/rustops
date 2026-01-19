@@ -1,9 +1,7 @@
 //! Benchmarks for domain event operations.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use rustops_common::events::{
-    DomainEvent, EventType, EventPayload, Severity,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use rustops_common::events::{DomainEvent, EventPayload, EventType, Severity};
 use rustops_common::{AlertId, AnomalyId, IncidentId, MetricId, ServiceId};
 
 fn bench_event_creation(c: &mut Criterion) {
@@ -65,30 +63,28 @@ fn bench_event_batch(c: &mut Criterion) {
 
     for size in [10, 100, 1000].iter() {
         let events: Vec<DomainEvent> = (0..*size)
-            .map(|_| DomainEvent::new(
-                EventType::AlertCreated,
-                EventPayload::AlertCreated {
-                    alert_id: AlertId::new(),
-                    title: "Test Alert".to_string(),
-                    severity: Severity::Warning,
-                    service_id: ServiceId::new(),
-                },
-            ))
+            .map(|_| {
+                DomainEvent::new(
+                    EventType::AlertCreated,
+                    EventPayload::AlertCreated {
+                        alert_id: AlertId::new(),
+                        title: "Test Alert".to_string(),
+                        severity: Severity::Warning,
+                        service_id: ServiceId::new(),
+                    },
+                )
+            })
             .collect();
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(size),
-            size,
-            |b, _| {
-                b.iter(|| {
-                    let jsons: Vec<_> = black_box(&events)
-                        .iter()
-                        .map(|e| serde_json::to_string(e).unwrap())
-                        .collect();
-                    black_box(jsons)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
+            b.iter(|| {
+                let jsons: Vec<_> = black_box(&events)
+                    .iter()
+                    .map(|e| serde_json::to_string(e).unwrap())
+                    .collect();
+                black_box(jsons)
+            });
+        });
     }
 
     group.finish();

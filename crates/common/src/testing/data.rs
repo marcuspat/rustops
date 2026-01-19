@@ -1,9 +1,9 @@
 //! Test data generation utilities.
 
-use crate::telemetry::{LogEntry, Metric};
 use crate::config::Config;
-use rand::Rng;
+use crate::telemetry::{LogEntry, Metric};
 use rand::seq::SliceRandom;
+use rand::Rng;
 use std::collections::HashMap;
 
 /// Generates random test data for tests.
@@ -142,9 +142,8 @@ impl FixtureLoader {
         P: AsRef<std::path::Path>,
     {
         let content = std::fs::read_to_string(path)?;
-        serde_json::from_str(&content).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })
+        serde_json::from_str(&content)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 }
 
@@ -173,8 +172,7 @@ mod tests {
         assert_eq!(metrics.len(), 100);
 
         // At least some variety in metric names
-        let unique_names: std::collections::HashSet<_> =
-            metrics.iter().map(|m| &m.name).collect();
+        let unique_names: std::collections::HashSet<_> = metrics.iter().map(|m| &m.name).collect();
         assert!(unique_names.len() > 1);
     }
 
@@ -211,7 +209,10 @@ mod tests {
         let age_seconds = now - metric.timestamp;
 
         assert!(age_seconds >= 0);
-        assert!(age_seconds <= 86400, "Timestamp should be within last 24 hours");
+        assert!(
+            age_seconds <= 86400,
+            "Timestamp should be within last 24 hours"
+        );
     }
 
     #[test]

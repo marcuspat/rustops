@@ -2,8 +2,8 @@
 //!
 //! Custom error types for the topology bounded context.
 
-use thiserror::Error;
 use rustops_common::Error as CommonError;
+use thiserror::Error;
 
 /// Topology result type
 pub type Result<T> = std::result::Result<T, Error>;
@@ -353,9 +353,10 @@ impl From<CommonError> for Error {
             CommonError::Network { message } => Error::Network(message),
             CommonError::Auth => Error::Authentication("Authentication failed".to_string()),
             CommonError::Authorization { reason } => Error::Authorization(reason),
-            CommonError::NotFound { resource, identifier } => {
-                Error::ResourceNotFound(format!("{} '{}'", resource, identifier))
-            }
+            CommonError::NotFound {
+                resource,
+                identifier,
+            } => Error::ResourceNotFound(format!("{} '{}'", resource, identifier)),
             CommonError::InvalidInput { message } => Error::Validation(message),
             _ => Error::Internal(err.to_string()),
         }
@@ -419,7 +420,10 @@ mod tests {
     fn test_error_creation() {
         let error = Error::graph("Test graph error");
         assert!(matches!(error, Error::Graph(_)));
-        assert_eq!(error.to_string(), "Graph operation failed: Test graph error");
+        assert_eq!(
+            error.to_string(),
+            "Graph operation failed: Test graph error"
+        );
     }
 
     #[test]

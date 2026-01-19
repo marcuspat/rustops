@@ -4,15 +4,13 @@
 // with Metrics API support and infrastructure actions
 
 use async_trait::async_trait;
-use kube::{
-    api::{Api, ListParams, WatchEvent, DeleteParams, Patch, PatchParams},
-    Client, Config,
+use k8s_openapi::api::{
+    apps::v1::Deployment,
+    core::v1::{Event, Node, Pod},
 };
-use k8s_openapi::{
-    api::{
-        core::v1::{Pod, Node, Event},
-        apps::v1::Deployment,
-    },
+use kube::{
+    api::{Api, DeleteParams, ListParams, Patch, PatchParams, WatchEvent},
+    Client, Config,
 };
 use std::collections::HashMap;
 use std::time::Duration;
@@ -20,8 +18,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::adapter::{
-    BaseAdapter, InfrastructureMonitor, IntegrationKind,
-    ResourceFilter, Resource as AdapterResource, ResourceMetrics, ResourceEvent, ResourceEventType, InfraAction, ActionResult,
+    ActionResult, BaseAdapter, InfraAction, InfrastructureMonitor, IntegrationKind,
+    Resource as AdapterResource, ResourceEvent, ResourceEventType, ResourceFilter, ResourceMetrics,
 };
 
 /// Kubernetes event types for enhanced monitoring
@@ -36,7 +34,7 @@ pub enum KubernetesEvent {
     Event(Event),
     DeploymentScaleChanged(String, i32),
 }
-use crate::resilience::{IntegrationError, IntegrationResult, HealthStatus};
+use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
 use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 
 /// Kubernetes adapter configuration
@@ -81,7 +79,6 @@ pub struct KubernetesAdapter {
     client: Option<Client>,
 }
 
-
 impl KubernetesAdapter {
     /// Create new Kubernetes adapter
     pub fn new(config: KubernetesConfig) -> Self {
@@ -106,7 +103,9 @@ impl KubernetesAdapter {
     /// Get Kubernetes client
     pub fn client(&self) -> IntegrationResult<&Client> {
         self.client.as_ref().ok_or_else(|| {
-            IntegrationError::Unknown("Kubernetes client not initialized. Call initialize() first.".to_string())
+            IntegrationError::Unknown(
+                "Kubernetes client not initialized. Call initialize() first.".to_string(),
+            )
         })
     }
 
@@ -115,9 +114,7 @@ impl KubernetesAdapter {
         std::env::var("NAMESPACE")
             .or_else(|_| {
                 // Try reading from service account
-                std::fs::read_to_string(
-                    "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-                )
+                std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
             })
             .ok()
     }
@@ -153,11 +150,18 @@ impl KubernetesAdapter {
     ) -> IntegrationResult<String> {
         // Simplified implementation - just return a placeholder
         // In real implementation, would use k8s logs API
-        Ok(format!("Logs for pod {} (container: {:?}, tail: {})", pod_name, container, tail_lines))
+        Ok(format!(
+            "Logs for pod {} (container: {:?}, tail: {})",
+            pod_name, container, tail_lines
+        ))
     }
 
     /// Scale deployment
-    async fn scale_deployment(&self, deployment_name: &str, replicas: i32) -> IntegrationResult<()> {
+    async fn scale_deployment(
+        &self,
+        deployment_name: &str,
+        replicas: i32,
+    ) -> IntegrationResult<()> {
         let client = self.client()?;
         let namespace = self.config.namespace.as_deref().unwrap_or("default");
         let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
@@ -174,16 +178,26 @@ impl KubernetesAdapter {
             .await
             .map_err(|e| IntegrationError::Network(format!("Failed to scale deployment: {}", e)))?;
 
-        info!("Scaled deployment {} to {} replicas", deployment_name, replicas);
+        info!(
+            "Scaled deployment {} to {} replicas",
+            deployment_name, replicas
+        );
         Ok(())
     }
 }
 
 #[async_trait]
 impl InfrastructureMonitor for KubernetesAdapter {
-    async fn list_resources(&self, filters: ResourceFilter) -> IntegrationResult<Vec<AdapterResource>> {
+    async fn list_resources(
+        &self,
+        filters: ResourceFilter,
+    ) -> IntegrationResult<Vec<AdapterResource>> {
         // Create all owned values before the closure
-        let namespace_str = self.config.namespace.clone().unwrap_or_else(|| "default".to_string());
+        let namespace_str = self
+            .config
+            .namespace
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
         let client = self.client()?.clone();
         let base = self.base.clone();
 
@@ -198,7 +212,8 @@ impl InfrastructureMonitor for KubernetesAdapter {
 
                 // Apply label filters
                 let lp = if !filters_clone.labels.is_empty() {
-                    let label_selector: Vec<String> = filters_clone.labels
+                    let label_selector: Vec<String> = filters_clone
+                        .labels
                         .iter()
                         .map(|(k, v)| format!("{}={}", k, v))
                         .collect();
@@ -207,7 +222,9 @@ impl InfrastructureMonitor for KubernetesAdapter {
                     lp
                 };
 
-                let pod_list = pods.list(&lp).await
+                let pod_list = pods
+                    .list(&lp)
+                    .await
                     .map_err(|e| IntegrationError::Network(e.to_string()))?;
 
                 let resources: Vec<AdapterResource> = pod_list
@@ -218,7 +235,12 @@ impl InfrastructureMonitor for KubernetesAdapter {
                         name: pod.metadata.name.unwrap_or_default(),
                         resource_type: "Pod".to_string(),
                         namespace: pod.metadata.namespace,
-                        labels: pod.metadata.labels.unwrap_or_default().into_iter().collect(),
+                        labels: pod
+                            .metadata
+                            .labels
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect(),
                         status: pod
                             .status
                             .and_then(|s| s.phase)
@@ -234,7 +256,11 @@ impl InfrastructureMonitor for KubernetesAdapter {
 
     async fn get_resource_metrics(&self, id: &str) -> IntegrationResult<ResourceMetrics> {
         // Create all owned values before the closure
-        let namespace_str = self.config.namespace.clone().unwrap_or_else(|| "default".to_string());
+        let namespace_str = self
+            .config
+            .namespace
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
         let id_string = id.to_string();
         let client = self.client()?.clone();
         let base = self.base.clone();
@@ -258,7 +284,8 @@ impl InfrastructureMonitor for KubernetesAdapter {
                                 .container_statuses
                                 .as_ref()
                                 .map(|statuses| {
-                                    statuses.iter()
+                                    statuses
+                                        .iter()
                                         .filter_map(|cs| cs.state.as_ref())
                                         .filter_map(|s| s.running.as_ref())
                                         .count()
@@ -287,7 +314,10 @@ impl InfrastructureMonitor for KubernetesAdapter {
                             timestamp: chrono::Utc::now(),
                         })
                     }
-                    Err(e) => Err(IntegrationError::Network(format!("Failed to get pod metrics: {}", e))),
+                    Err(e) => Err(IntegrationError::Network(format!(
+                        "Failed to get pod metrics: {}",
+                        e
+                    ))),
                 }
             }
         })
@@ -296,7 +326,11 @@ impl InfrastructureMonitor for KubernetesAdapter {
 
     async fn watch_resources(&self) -> IntegrationResult<mpsc::Receiver<ResourceEvent>> {
         let client = self.client()?.clone();
-        let namespace = self.config.namespace.clone().unwrap_or_else(|| "default".to_string());
+        let namespace = self
+            .config
+            .namespace
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
         let buffer_size = self.config.max_watch_streams;
 
         let (tx, rx) = mpsc::channel(buffer_size);
@@ -318,18 +352,30 @@ impl InfrastructureMonitor for KubernetesAdapter {
                 match pods.list(&ListParams::default()).await {
                     Ok(pod_list) => {
                         for pod in pod_list.items {
-                            if tx_clone.send(ResourceEvent {
-                                event_type: ResourceEventType::Added,
-                                resource: AdapterResource {
-                                    id: pod.metadata.uid.unwrap_or_default(),
-                                    name: pod.metadata.name.unwrap_or_default(),
-                                    resource_type: "Pod".to_string(),
-                                    namespace: pod.metadata.namespace,
-                                    labels: pod.metadata.labels.unwrap_or_default().into_iter().collect(),
-                                    status: pod.status.and_then(|s| s.phase).unwrap_or_default(),
-                                },
-                                timestamp: chrono::Utc::now(),
-                            }).await.is_err() {
+                            if tx_clone
+                                .send(ResourceEvent {
+                                    event_type: ResourceEventType::Added,
+                                    resource: AdapterResource {
+                                        id: pod.metadata.uid.unwrap_or_default(),
+                                        name: pod.metadata.name.unwrap_or_default(),
+                                        resource_type: "Pod".to_string(),
+                                        namespace: pod.metadata.namespace,
+                                        labels: pod
+                                            .metadata
+                                            .labels
+                                            .unwrap_or_default()
+                                            .into_iter()
+                                            .collect(),
+                                        status: pod
+                                            .status
+                                            .and_then(|s| s.phase)
+                                            .unwrap_or_default(),
+                                    },
+                                    timestamp: chrono::Utc::now(),
+                                })
+                                .await
+                                .is_err()
+                            {
                                 return;
                             }
                         }
@@ -385,7 +431,9 @@ impl InfrastructureMonitor for KubernetesAdapter {
                 } else {
                     Ok(ActionResult {
                         success: false,
-                        message: "get_pod_logs action requires 'pod_name' and 'tail_lines' parameters".to_string(),
+                        message:
+                            "get_pod_logs action requires 'pod_name' and 'tail_lines' parameters"
+                                .to_string(),
                         output: None,
                         error: Some("Missing required parameters".to_string()),
                     })
@@ -400,7 +448,10 @@ impl InfrastructureMonitor for KubernetesAdapter {
                     match self.scale_deployment(deployment_name, replicas).await {
                         Ok(_) => Ok(ActionResult {
                             success: true,
-                            message: format!("Deployment {} scaled to {} replicas", deployment_name, replicas),
+                            message: format!(
+                                "Deployment {} scaled to {} replicas",
+                                deployment_name, replicas
+                            ),
                             output: None,
                             error: None,
                         }),
@@ -466,11 +517,12 @@ impl crate::adapter::IntegrationAdapter for KubernetesAdapter {
             }
         }
 
-        let mut config = Config::infer().await
-            .map_err(|e| IntegrationError::Authentication(format!("Failed to load kubeconfig: {}", e)))?;
+        let mut config = Config::infer().await.map_err(|e| {
+            IntegrationError::Authentication(format!("Failed to load kubeconfig: {}", e))
+        })?;
 
-        self.client = Some(Client::try_from(config)
-            .map_err(|e| IntegrationError::Network(e.to_string()))?);
+        self.client =
+            Some(Client::try_from(config).map_err(|e| IntegrationError::Network(e.to_string()))?);
 
         self.health_check().await?;
         Ok(())
@@ -542,7 +594,10 @@ mod tests {
             },
         };
 
-        assert_eq!(action.parameters.get("pod_name"), Some(&"test-pod".to_string()));
+        assert_eq!(
+            action.parameters.get("pod_name"),
+            Some(&"test-pod".to_string())
+        );
     }
 }
 
@@ -552,19 +607,22 @@ mod integration_tests {
     use tokio_test;
 
     #[tokio::test]
-    #[ignore]  // Requires k8s cluster
+    #[ignore] // Requires k8s cluster
     async fn test_health_check() {
         let config = KubernetesConfig::default();
         let mut adapter = KubernetesAdapter::new(config);
 
         adapter.initialize().await.unwrap();
         let health = adapter.health_check().await.unwrap();
-        assert!(matches!(health, HealthStatus::Healthy | HealthStatus::Unknown));
+        assert!(matches!(
+            health,
+            HealthStatus::Healthy | HealthStatus::Unknown
+        ));
         adapter.shutdown().await.unwrap();
     }
 
     #[tokio::test]
-    #[ignore]  // Requires k8s cluster
+    #[ignore] // Requires k8s cluster
     async fn test_list_pods() {
         let config = KubernetesConfig::default();
         let mut adapter = KubernetesAdapter::new(config);
@@ -584,7 +642,7 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    #[ignore]  // Requires k8s cluster
+    #[ignore] // Requires k8s cluster
     async fn test_watch_resources() {
         let config = KubernetesConfig {
             max_watch_streams: 10,
@@ -602,7 +660,8 @@ mod integration_tests {
             let mut count = 0;
             while let Some(event) = rx.recv().await {
                 count += 1;
-                if count > 5 {  // Limit test duration
+                if count > 5 {
+                    // Limit test duration
                     break;
                 }
             }

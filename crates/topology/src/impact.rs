@@ -4,14 +4,14 @@
 //! Calculates blast radius, identifies critical paths, and assesses change risks.
 
 use crate::{
-    graph::ServiceGraph,
-    model::{ServiceNode, DependencyEdge, ServiceType, HealthStatus, DependencyType},
     events::{TopologyEvent, TopologyEventStore},
+    graph::ServiceGraph,
+    model::{DependencyEdge, DependencyType, HealthStatus, ServiceNode, ServiceType},
 };
-use rustops_common::{ServiceId, Result};
+use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, BTreeMap};
-use tracing::{debug, info, warn, error};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use tracing::{debug, error, info, warn};
 
 /// Impact analysis result for a service change
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,7 +110,11 @@ pub struct AffectedServices {
 impl AffectedServices {
     /// Get total services count
     pub fn total_services(&self) -> usize {
-        self.critical.len() + self.high.len() + self.medium.len() + self.low.len() + self.external.len()
+        self.critical.len()
+            + self.high.len()
+            + self.medium.len()
+            + self.low.len()
+            + self.external.len()
     }
 }
 
@@ -394,11 +398,19 @@ impl ImpactAnalyzer {
         };
 
         // Get affected services
-        let affected_services = self.analyze_affected_services(service_id, &blast_radius).await?;
+        let affected_services = self
+            .analyze_affected_services(service_id, &blast_radius)
+            .await?;
 
         // Get risk assessment
         let risk_assessment = if self.config.enable_risk_assessment {
-            self.assess_risk(service_id, &blast_radius, &critical_paths, &affected_services).await?
+            self.assess_risk(
+                service_id,
+                &blast_radius,
+                &critical_paths,
+                &affected_services,
+            )
+            .await?
         } else {
             RiskAssessment {
                 risk_level: RiskLevel::None,
@@ -410,13 +422,15 @@ impl ImpactAnalyzer {
         };
 
         // Generate recommendations
-        let recommendations = self.generate_recommendations(
-            service_id,
-            &blast_radius,
-            &critical_paths,
-            &affected_services,
-            &risk_assessment,
-        ).await?;
+        let recommendations = self
+            .generate_recommendations(
+                service_id,
+                &blast_radius,
+                &critical_paths,
+                &affected_services,
+                &risk_assessment,
+            )
+            .await?;
 
         Ok(ImpactAnalysis {
             source_service: *service_id,
@@ -431,7 +445,9 @@ impl ImpactAnalyzer {
 
     /// Analyze blast radius for a service change
     async fn analyze_blast_radius(&self, service_id: &ServiceId) -> Result<BlastRadiusAnalysis> {
-        let blast_radius = self.graph.calculate_blast_radius(service_id, self.config.max_blast_radius_hops)?;
+        let blast_radius = self
+            .graph
+            .calculate_blast_radius(service_id, self.config.max_blast_radius_hops)?;
 
         // Calculate direct and indirect affected services
         let mut direct_affected = 0;
@@ -447,16 +463,21 @@ impl ImpactAnalyzer {
 
         // Count critical services
         for service_id in &blast_radius.affected_services {
-            if self.graph.get_service(service_id)
+            if self
+                .graph
+                .get_service(service_id)
                 .and_then(|s| s.labels.get("criticality"))
-                .map(|s| s.as_str()) == Some("high") {
+                .map(|s| s.as_str())
+                == Some("high")
+            {
                 critical_services += 1;
             }
         }
 
         // Calculate impact scores
         let total_services = self.graph.service_count();
-        let technical_impact = ((blast_radius.total_affected as f64 / total_services as f64) * 100.0) as u8;
+        let technical_impact =
+            ((blast_radius.total_affected as f64 / total_services as f64) * 100.0) as u8;
 
         let business_impact = if self.config.enable_business_impact {
             self.calculate_business_impact(service_id).await?
@@ -489,7 +510,10 @@ impl ImpactAnalyzer {
 
         for upstream_service in upstream_services {
             // Find shortest path
-            if let Some(path) = self.graph.find_shortest_path(&upstream_service.id, service_id)? {
+            if let Some(path) = self
+                .graph
+                .find_shortest_path(&upstream_service.id, service_id)?
+            {
                 if path.len() > 1 {
                     let criticality_score = self.calculate_path_criticality(&path).await?;
 
@@ -497,7 +521,9 @@ impl ImpactAnalyzer {
                     let bottlenecks = self.identify_path_bottlenecks(&path).await?;
 
                     // Check for alternative paths
-                    let alternative_paths = self.count_alternative_paths(&upstream_service.id, service_id).await?;
+                    let alternative_paths = self
+                        .count_alternative_paths(&upstream_service.id, service_id)
+                        .await?;
 
                     let critical_path = CriticalPath {
                         id: format!("path_{}_{}_{}", path[0].id, service_id, path.len()),
@@ -542,25 +568,32 @@ impl ImpactAnalyzer {
             }
 
             if let Some(service) = self.graph.get_service(affected_service_id) {
-                let severity = self.calculate_service_severity(
-                    service_id,
-                    affected_service_id,
-                    blast_radius,
-                ).await?;
+                let severity = self
+                    .calculate_service_severity(service_id, affected_service_id, blast_radius)
+                    .await?;
 
-                let dependency_hops = self.calculate_dependency_hops(service_id, affected_service_id).await?;
+                let dependency_hops = self
+                    .calculate_dependency_hops(service_id, affected_service_id)
+                    .await?;
 
-                let downtime_estimate = self.estimate_service_downtime(&service, dependency_hops).await?;
+                let downtime_estimate = self
+                    .estimate_service_downtime(&service, dependency_hops)
+                    .await?;
 
                 let customer_impact = self.get_customer_impact_description(&service).await?;
 
-                let mitigation = self.check_mitigation_available(service_id, affected_service_id).await?;
+                let mitigation = self
+                    .check_mitigation_available(service_id, affected_service_id)
+                    .await?;
 
                 let previous_health = service.health;
 
                 let affected_service = AffectedService {
                     id: service.id,
-                    name: service.name.clone().unwrap_or_else(|| "<unnamed>".to_string()),
+                    name: service
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| "<unnamed>".to_string()),
                     namespace: service.namespace.clone(),
                     severity,
                     dependency_hops,
@@ -693,12 +726,15 @@ impl ImpactAnalyzer {
         let mut recommendations = Vec::new();
 
         // High priority recommendations for critical impact
-        if blast_radius.critical_services_affected > 0 || risk_assessment.risk_level == RiskLevel::Critical {
+        if blast_radius.critical_services_affected > 0
+            || risk_assessment.risk_level == RiskLevel::Critical
+        {
             recommendations.push(Recommendation {
                 id: "immediate-pause".to_string(),
                 recommendation_type: RecommendationType::ImmediateAction,
                 title: "Pause Deployment".to_string(),
-                description: "Consider pausing the deployment to assess the full impact".to_string(),
+                description: "Consider pausing the deployment to assess the full impact"
+                    .to_string(),
                 priority: Priority::Emergency,
                 implementation: ImplementationGuidance {
                     steps: vec![
@@ -784,10 +820,7 @@ impl ImpactAnalyzer {
     /// Helper methods
 
     /// Calculate business impact score
-    async fn calculate_business_impact(
-        &self,
-        _service_id: &ServiceId,
-    ) -> Result<u8> {
+    async fn calculate_business_impact(&self, _service_id: &ServiceId) -> Result<u8> {
         // This is a stub implementation
         // In a real implementation, this would consider:
         // - Critical services affected
@@ -801,7 +834,10 @@ impl ImpactAnalyzer {
     }
 
     /// Estimate recovery time
-    async fn estimate_recovery_time(&self, blast_radius: &crate::graph::BlastRadius) -> Result<Option<u32>> {
+    async fn estimate_recovery_time(
+        &self,
+        blast_radius: &crate::graph::BlastRadius,
+    ) -> Result<Option<u32>> {
         // Base recovery time affected by:
         // - Number of affected services
         // - Critical services
@@ -945,7 +981,10 @@ impl ImpactAnalyzer {
     }
 
     /// Get customer impact description
-    async fn get_customer_impact_description(&self, _service: &ServiceNode) -> Result<Option<String>> {
+    async fn get_customer_impact_description(
+        &self,
+        _service: &ServiceNode,
+    ) -> Result<Option<String>> {
         // This would look up customer-facing impact descriptions
         Ok(None)
     }
