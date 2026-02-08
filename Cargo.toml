@@ -73,7 +73,7 @@ governor = { version = "0.6", features = ["std"] }
 tokio-retry = "0.3"
 
 # Testing
-proptest = "1.0"
+proptest = "1.10"
 criterion = "0.4"
 mockito = "1.0"
 wiremock = "0.5"
