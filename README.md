@@ -4,9 +4,9 @@
 
 [![Rust](https://img.shields.io/badge/Rust-1.85+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-139%20passing-success.svg)](https://github.com/rustops/rustops)
-[![Coverage](https://img.shields.io/badge/coverage-80%25%20minimum-brightgreen.svg)](https://github.com/rustops/rustops)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/rustops/rustops)
+[![Main Branch](https://github.com/marcuspat/rustops/actions/workflows/main.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/main.yml)
+[![RustOps Test Suite](https://github.com/marcuspat/rustops/actions/workflows/test.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/test.yml)
+[![Periodic Security Scan](https://github.com/marcuspat/rustops/actions/workflows/security-scan.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/security-scan.yml)
 
 ---
 
@@ -55,7 +55,7 @@ RustOps is a comprehensive **AIOps (Artificial Intelligence for IT Operations)**
 
 ```bash
 # Clone the repository
-git clone https://github.com/rustops/rustops.git
+git clone https://github.com/marcuspat/rustops.git
 cd rustops
 
 # Install dependencies and build
@@ -317,7 +317,7 @@ for pattern in results {
 
 ```bash
 # Clone repository
-git clone https://github.com/rustops/rustops.git
+git clone https://github.com/marcuspat/rustops.git
 cd rustops
 
 # Build workspace
@@ -340,12 +340,12 @@ cargo install rustops-agent --path crates/agent
 ### Docker
 
 ```bash
-# Pull images
-docker pull rustops/api:latest
-docker pull rustops/agent:latest
+# Build images locally (no prebuilt images are published)
+docker build -f docker/Dockerfile.api -t rustops/api:latest .
+docker build -f docker/Dockerfile.agent -t rustops/agent:latest .
 
-# Run with docker-compose
-docker-compose up -d
+# Or build and run the full stack with docker-compose
+docker-compose up -d --build
 ```
 
 ### System Requirements
@@ -899,9 +899,8 @@ limitations under the License.
 
 ### Community
 
-- 💬 [Discussions](https://github.com/rustops/rustops/discussions)
-- 🐛 [Issues](https://github.com/rustops/rustops/issues)
-- 📧 Email: support@rustops.com
+- 💬 [Discussions](https://github.com/marcuspat/rustops/discussions)
+- 🐛 [Issues](https://github.com/marcuspat/rustops/issues)
 
 ### Acknowledgments
 
@@ -918,4 +917,4 @@ Built with:
 
 **RustOps** - Empowering DevOps teams with intelligent automation and observability.
 
-For more information, visit [https://github.com/rustops/rustops](https://github.com/rustops/rustops)
+For more information, visit [https://github.com/marcuspat/rustops](https://github.com/marcuspat/rustops)
