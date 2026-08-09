@@ -21,7 +21,7 @@ edition = "2021"
 rust-version = "1.70"
 authors = ["RustOps Team"]
 license = "Apache-2.0"
-repository = "https://github.com/rustops/rustops"
+repository = "https://github.com/marcuspat/rustops"
 
 [workspace.dependencies]
 # Async Runtime (compatible with rustc 1.70)
