@@ -532,7 +532,7 @@ One suggestion: you could simplify line 78 using itertools.
 **PR created:**
 ```
 @here New PR: "feat: add anomaly detection"
-https://github.com/rustops/rustops/pull/123
+https://github.com/marcuspat/rustops/pull/123
 
 Author: @username
 Reviewers: @reviewer1 @reviewer2
@@ -541,7 +541,7 @@ Reviewers: @reviewer1 @reviewer2
 **PR merged:**
 ```
 ✅ Merged: "feat: add anomaly detection"
-https://github.com/rustops/rustops/pull/123
+https://github.com/marcuspat/rustops/pull/123
 
 Deploying to dev...
 ```
