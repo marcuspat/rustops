@@ -784,8 +784,8 @@ jobs:
 ```markdown
 # RustOps
 
-[![CI/CD](https://github.com/rustops/rustops/actions/workflows/pr.yml/badge.svg)](https://github.com/rustops/rustops/actions/workflows/pr.yml)
-[![codecov](https://codecov.io/gh/rustops/rustops/branch/main/graph/badge.svg)](https://codecov.io/gh/rustops/rustops)
-[![Security Audit](https://github.com/rustops/rustops/actions/workflows/security.yml/badge.svg)](https://github.com/rustops/rustops/actions/workflows/security.yml)
+[![CI/CD](https://github.com/marcuspat/rustops/actions/workflows/pr.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/pr.yml)
+[![codecov](https://codecov.io/gh/marcuspat/rustops/branch/main/graph/badge.svg)](https://codecov.io/gh/marcuspat/rustops)
+[![Security Audit](https://github.com/marcuspat/rustops/actions/workflows/security.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ```

@@ -403,7 +403,7 @@ Contact: platform-oncall@rustops.dev
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/rustops/rustops.git
+git clone https://github.com/marcuspat/rustops.git
 cd rustops
 ```
 
@@ -549,7 +549,7 @@ pub async fn collect(&self) -> Result<Vec<Metric>> {
 ## Getting Help
 
 - [Documentation](https://docs.rustops.dev)
-- [GitHub Issues](https://github.com/rustops/rustops/issues)
+- [GitHub Issues](https://github.com/marcuspat/rustops/issues)
 - [Slack](https://rustops-dev.slack.com)
 ```
 

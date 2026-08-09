@@ -86,5 +86,5 @@ Release: build-containers → deploy-staging → deploy-prod
 ## Support
 
 - Documentation: https://docs.rustops.dev
-- Issues: https://github.com/rustops/rustops/issues
+- Issues: https://github.com/marcuspat/rustops/issues
 - Slack: https://rustops-dev.slack.com
