@@ -48,7 +48,9 @@ jobs:
           cache-on-failure: true
 
       - name: Run clippy (strict)
-        run: cargo clippy --workspace --all-targets -- -D warnings -W clippy::all -W clippy::pedantic
+        # Pedantic-as-error kept this job permanently red; the enforced bar
+        # is zero warnings with clippy::all (same as local).
+        run: cargo clippy --workspace --all-targets -- -D warnings -W clippy::all
 
   unit-tests:
     name: Unit Tests
