@@ -82,6 +82,7 @@ pub type Result<T> = std::result::Result<T, rustops_common::Error>;
 
 impl Anomaly {
     /// Create a new anomaly
+    #[allow(clippy::too_many_arguments)] // domain constructor mirrors the stored fields
     pub fn new(
         metric_id: MetricId,
         service_id: ServiceId,
@@ -132,7 +133,6 @@ impl Anomaly {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_anomaly_creation() {

@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
 /// Domain event for topology changes
@@ -36,9 +36,9 @@ pub enum TopologyEvent {
         /// Service ID
         service_id: ServiceId,
         /// Previous service info (for change detection)
-        previous_service: Option<ServiceNode>,
+        previous_service: Option<Box<ServiceNode>>,
         /// Updated service info
-        current_service: ServiceNode,
+        current_service: Box<ServiceNode>,
     },
     /// Dependency was added between services
     DependencyAdded {
@@ -117,6 +117,27 @@ impl TopologyEvent {
     /// Check if event is an error event
     pub fn is_error_event(&self) -> bool {
         matches!(self, TopologyEvent::TopologyError { .. })
+    }
+
+    /// All services an event involves — used for per-service indexing, so
+    /// dependency events are found from either endpoint.
+    pub fn involved_service_ids(&self) -> Vec<&ServiceId> {
+        match self {
+            TopologyEvent::ServiceAdded { service_id, .. }
+            | TopologyEvent::ServiceRemoved { service_id, .. }
+            | TopologyEvent::ServiceUpdated { service_id, .. } => vec![service_id],
+            TopologyEvent::DependencyAdded {
+                from_service_id,
+                to_service_id,
+                ..
+            }
+            | TopologyEvent::DependencyRemoved {
+                from_service_id,
+                to_service_id,
+                ..
+            } => vec![from_service_id, to_service_id],
+            _ => Vec::new(),
+        }
     }
 
     /// Get service ID if applicable
@@ -270,17 +291,19 @@ pub trait TopologyEventStore: Send + Sync {
 
 /// In-memory event store implementation
 pub struct InMemoryEventStore {
-    events: RwLock<Vec<TopologyEvent>>,
-    service_index: RwLock<HashMap<ServiceId, Vec<usize>>>,
+    events: Arc<RwLock<Vec<TopologyEvent>>>,
+    service_index: Arc<RwLock<HashMap<ServiceId, Vec<usize>>>>,
 }
 
 impl Clone for InMemoryEventStore {
+    /// Clones are HANDLES to the same store (shared state). The previous
+    /// implementation deep-copied a snapshot, so every component that
+    /// received a "clone" (event emitter, impact analyzer, ...) silently
+    /// wrote to its own disconnected store.
     fn clone(&self) -> Self {
-        let events = self.events.read().unwrap();
-        let service_index = self.service_index.read().unwrap();
         Self {
-            events: RwLock::new(events.clone()),
-            service_index: RwLock::new(service_index.clone()),
+            events: Arc::clone(&self.events),
+            service_index: Arc::clone(&self.service_index),
         }
     }
 }
@@ -289,16 +312,16 @@ impl InMemoryEventStore {
     /// Create new in-memory event store
     pub fn new() -> Self {
         Self {
-            events: RwLock::new(Vec::new()),
-            service_index: RwLock::new(HashMap::new()),
+            events: Arc::new(RwLock::new(Vec::new())),
+            service_index: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     /// Create with initial capacity
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            events: RwLock::new(Vec::with_capacity(capacity)),
-            service_index: RwLock::new(HashMap::new()),
+            events: Arc::new(RwLock::new(Vec::with_capacity(capacity))),
+            service_index: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -316,18 +339,22 @@ impl TopologyEventStore for InMemoryEventStore {
         let event_index = events.len();
         events.push(event.clone());
 
-        // Update service index for service events
-        if let Some(service_id) = event.service_id() {
+        // Index the event under every service it involves (dependency
+        // events are looked up from either endpoint).
+        let involved: Vec<ServiceId> = event.involved_service_ids().into_iter().cloned().collect();
+        if !involved.is_empty() {
             let mut service_index =
                 self.service_index
                     .write()
                     .map_err(|_| rustops_common::Error::Config {
                         message: "Failed to acquire write lock for service index".to_string(),
                     })?;
-            service_index
-                .entry(service_id.clone())
-                .or_insert_with(Vec::new)
-                .push(event_index);
+            for service_id in involved {
+                service_index
+                    .entry(service_id)
+                    .or_insert_with(Vec::new)
+                    .push(event_index);
+            }
         }
 
         debug!("Stored topology event: {}", event.event_type());
@@ -399,7 +426,7 @@ impl TopologyEventStore for InMemoryEventStore {
                 message: "Failed to acquire read lock for events".to_string(),
             })?;
         let total = events.len();
-        let start = if count >= total { 0 } else { total - count };
+        let start = total.saturating_sub(count);
 
         Ok(events[start..].to_vec())
     }
@@ -447,7 +474,7 @@ impl TopologyEventStore for InMemoryEventStore {
                 TopologyEvent::ServiceUpdated {
                     current_service, ..
                 } => {
-                    if let Err(e) = graph.add_service(current_service.clone()) {
+                    if let Err(e) = graph.add_service((**current_service).clone()) {
                         warn!("Failed to replay service update event: {}", e);
                     }
                 }
@@ -625,8 +652,8 @@ impl EventEmitter {
     ) -> Result<()> {
         let event = TopologyEvent::ServiceUpdated {
             service_id,
-            previous_service,
-            current_service,
+            previous_service: previous_service.map(Box::new),
+            current_service: Box::new(current_service),
         };
         self.event_store.store_event(event)
     }

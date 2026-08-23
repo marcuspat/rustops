@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Knowledge management with vector embeddings for RustOps"
+description = "Experimental: HNSW vector index over caller-supplied embeddings, pattern extraction, and runbook storage for RustOps (no embedding model included)"
 
 [dependencies]
 tokio = { workspace = true }
@@ -18,14 +18,10 @@ chrono = { workspace = true }
 async-trait = { workspace = true }
 
 # Vector embeddings
-hnsw-rs = { workspace = true }
-ndarray = { workspace = true }
-
-# AI/ML
-# ort = { workspace = true }  # TODO: Add when ONNX Runtime is available
+hnsw_rs = "0.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
-proptest = { workspace = true }
-criterion = { workspace = true }
+proptest = "1"
+criterion = "0.5"
 tempfile = "3"

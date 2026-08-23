@@ -5,20 +5,19 @@
 
 use crate::{
     events::{TopologyEvent, TopologyEventStore},
-    model::{DependencyEdge, DependencyType, HealthStatus, ServiceNode, ServiceType},
+    model::{DependencyEdge, DependencyType, ServiceNode},
     // Re-export these types from model for convenience
     // Note: ServiceType, HealthStatus, DependencyType, Protocol are defined in model.rs
 };
 use petgraph::{
-    algo::{astar, dijkstra},
     stable_graph::NodeIndex,
-    visit::{Dfs, EdgeRef, Walker},
+    visit::{Dfs, EdgeRef},
     Directed, Graph,
 };
 use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// Service topology graph with service nodes and dependency edges
 pub struct ServiceGraph {
@@ -56,10 +55,10 @@ impl ServiceGraph {
 
     /// Add or update a service node
     pub fn add_service(&mut self, service: ServiceNode) -> Result<()> {
-        let node_id = match self.service_index.get(&service.id) {
+        let _node_id = match self.service_index.get(&service.id) {
             Some(index) => {
                 // Update existing node
-                let mut node = self.graph.node_weight_mut(*index).unwrap();
+                let node = self.graph.node_weight_mut(*index).unwrap();
                 *node = service.clone();
                 *index
             }
@@ -259,10 +258,13 @@ impl ServiceGraph {
                     identifier: service_id.to_string(),
                 })?;
 
+        // Upstream = services that (transitively) depend on this one, i.e.
+        // everything reachable by walking edges in reverse.
+        let reversed = petgraph::visit::Reversed(&self.graph);
         let mut upstream = Vec::new();
-        let mut dfs = Dfs::new(&self.graph, start_index);
+        let mut dfs = Dfs::new(&reversed, start_index);
 
-        while let Some(node_index) = dfs.next(&self.graph) {
+        while let Some(node_index) = dfs.next(&reversed) {
             if node_index != start_index {
                 if let Some(node) = self.graph.node_weight(node_index) {
                     upstream.push(node.clone());
@@ -314,7 +316,7 @@ impl ServiceGraph {
                 })?;
 
         let mut affected_services = HashSet::new();
-        let mut total_paths = 0;
+        let _total_paths = 0;
         let mut hops_distribution = HashMap::new();
 
         // BFS to find all services within max_hops
@@ -333,16 +335,15 @@ impl ServiceGraph {
                 }
             }
 
-            // Add neighbors to queue
+            // Blast radius = services affected when this one fails, i.e. its
+            // (transitive) dependents — walk edges in REVERSE (incoming).
             for edge_ref in self
                 .graph
-                .edges_directed(node_index, petgraph::Direction::Outgoing)
+                .edges_directed(node_index, petgraph::Direction::Incoming)
             {
                 let next_hops = hops + 1;
                 if next_hops <= max_hops {
-                    if let Some((_, target)) = self.graph.edge_endpoints(edge_ref.id()) {
-                        queue.push_back((target, next_hops));
-                    }
+                    queue.push_back((edge_ref.source(), next_hops));
                 }
             }
         }
@@ -388,23 +389,25 @@ impl ServiceGraph {
                     identifier: to.to_string(),
                 })?;
 
-        // Use Dijkstra's algorithm to find if path exists
-        let result = dijkstra(&self.graph, from_index, Some(to_index), |_| 1);
+        // A* with a zero heuristic == Dijkstra, but it returns the actual
+        // node sequence rather than just distances.
+        let result = petgraph::algo::astar(
+            &self.graph,
+            from_index,
+            |node| node == to_index,
+            |_| 1,
+            |_| 0,
+        );
 
-        // Check if target is reachable
-        if result.contains_key(&to_index) {
-            // For now, return a simple path with just the two nodes
-            // A proper implementation would reconstruct the full path
-            let mut service_path = Vec::new();
-            if let Some(from_node) = self.graph.node_weight(from_index) {
-                service_path.push(from_node.clone());
+        match result {
+            Some((_cost, node_path)) => {
+                let service_path = node_path
+                    .into_iter()
+                    .filter_map(|idx| self.graph.node_weight(idx).cloned())
+                    .collect();
+                Ok(Some(service_path))
             }
-            if let Some(to_node) = self.graph.node_weight(to_index) {
-                service_path.push(to_node.clone());
-            }
-            Ok(Some(service_path))
-        } else {
-            Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -412,7 +415,7 @@ impl ServiceGraph {
     pub fn find_circular_dependencies(&self) -> Result<Vec<Vec<ServiceNode>>> {
         let mut cycles = Vec::new();
         let mut visited = HashSet::new();
-        let mut recursion_stack: HashSet<NodeIndex> = HashSet::new();
+        let _recursion_stack: HashSet<NodeIndex> = HashSet::new();
 
         // Find all strongly connected components (SCCs)
         for node_index in self.graph.node_indices() {
@@ -521,6 +524,7 @@ pub struct BlastRadius {
 mod tests {
     use super::*;
     use crate::model::ServiceNode;
+    use crate::{HealthStatus, ServiceType};
     use chrono::Utc;
     use rustops_common::ServiceId;
 

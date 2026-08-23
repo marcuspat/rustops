@@ -18,7 +18,6 @@ tracing-subscriber = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-kafka = "0.10"
 uuid = { workspace = true }
 async-trait = { workspace = true }
 

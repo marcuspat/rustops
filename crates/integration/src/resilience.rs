@@ -3,40 +3,48 @@
 // Implements circuit breakers, rate limiting, and retry logic
 
 use chrono::{DateTime, Utc};
-use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
 
 /// Integration error types
 #[derive(Debug, thiserror::Error)]
 pub enum IntegrationError {
     #[error("Network error: {0}")]
+    /// Network.
     Network(String),
 
     #[error("Authentication failed: {0}")]
+    /// Authentication.
     Authentication(String),
 
     #[error("Rate limit exceeded")]
+    /// RateLimitExceeded.
     RateLimitExceeded,
 
     #[error("Circuit breaker is open")]
+    /// CircuitBreakerOpen.
     CircuitBreakerOpen,
 
     #[error("Timeout after {0:?}")]
+    /// Timeout.
     Timeout(std::time::Duration),
 
     #[error("Serialization error: {0}")]
+    /// Serialization.
     Serialization(String),
 
     #[error("Deserialization error: {0}")]
+    /// Deserialization.
     Deserialization(String),
 
     #[error("Invalid response: {0}")]
+    /// InvalidResponse.
     InvalidResponse(String),
 
     #[error("Service unavailable: {0}")]
+    /// ServiceUnavailable.
     ServiceUnavailable(String),
 
     #[error("Unknown error: {0}")]
+    /// Unknown.
     Unknown(String),
 }
 
@@ -71,42 +79,63 @@ pub type IntegrationResult<T> = Result<T, IntegrationError>;
 /// Health status for integrations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HealthStatus {
+    /// Healthy.
     Healthy,
+    /// Degraded.
     Degraded,
+    /// Unhealthy.
     Unhealthy,
+    /// Unknown.
     Unknown,
 }
 
 /// Call outcome for monitoring
 #[derive(Debug, Clone)]
 pub struct CallOutcome {
+    /// Pub.
     pub status: CallStatus,
+    /// Pub.
     pub latency: std::time::Duration,
+    /// Pub.
     pub circuit_breaker_open: bool,
+    /// Pub.
     pub rate_limit_hit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// CallStatus.
 pub enum CallStatus {
+    /// Success.
     Success,
+    /// Failure.
     Failure,
+    /// Timeout.
     Timeout,
+    /// RateLimited.
     RateLimited,
 }
 
 /// Integration health metrics
 #[derive(Debug, Clone)]
 pub struct IntegrationHealth {
+    /// Pub.
     pub integration_id: String,
+    /// Pub.
     pub status: HealthStatus,
+    /// Pub.
     pub last_successful_call: Option<DateTime<Utc>>,
+    /// Pub.
     pub error_rate: f64,
+    /// Pub.
     pub avg_latency: std::time::Duration,
+    /// Pub.
     pub circuit_breaker_open: bool,
+    /// Pub.
     pub rate_limit_hits: u64,
 }
 
 impl IntegrationHealth {
+    /// New.
     pub fn new(integration_id: impl Into<String>) -> Self {
         Self {
             integration_id: integration_id.into(),
@@ -119,6 +148,7 @@ impl IntegrationHealth {
         }
     }
 
+    /// Update.
     pub fn update(&mut self, outcome: &CallOutcome) {
         match outcome.status {
             CallStatus::Success => {

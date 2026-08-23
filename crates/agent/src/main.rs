@@ -12,9 +12,12 @@
 use chrono::Utc;
 use rustops_common::ServiceId;
 use rustops_integration::{
-    CircuitBreakerConfig, IntegrationAdapter, PrometheusAdapter, RateLimiterConfig, RetryConfig,
+    adapter::{MetricQuery, TelemetryCollector},
+    telemetry::prometheus::{PrometheusAdapter, PrometheusConfig},
+    IntegrationAdapter,
 };
 use rustops_telemetry::{KafkaProducer, MetricsCollector};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
@@ -57,36 +60,32 @@ struct Agent {
     config: AgentConfig,
     prometheus: PrometheusAdapter,
     collector: MetricsCollector,
-    producer: Arc<KafkaProducer>,
 }
 
 impl Agent {
     /// Create a new agent
     fn new(config: AgentConfig) -> Result<Self, rustops_common::Error> {
         // Create Prometheus adapter
-        let prometheus = PrometheusAdapter::new(
-            "rustops-agent-prometheus",
-            &config.prometheus_url,
-            None::<(&str, &str)>,
-            CircuitBreakerConfig::default(),
-            RateLimiterConfig::default(),
-            RetryConfig::default(),
-        );
+        let prometheus = PrometheusAdapter::new(PrometheusConfig {
+            url: config.prometheus_url.clone(),
+            username: None,
+            password: None,
+            bearer_token: None,
+            timeout: Duration::from_secs(30),
+        });
 
         // Create Kafka producer (stub for now)
-        let producer = Arc::new(
-            KafkaProducer::new(config.service_id)
-                .map_err(|e| rustops_common::Error::internal(format!("Failed to create producer: {}", e)))?,
-        );
+        let producer = Arc::new(KafkaProducer::new(config.service_id).map_err(|e| {
+            rustops_common::Error::internal(format!("Failed to create producer: {}", e))
+        })?);
 
-        // Create metrics collector
-        let collector = MetricsCollector::new(producer.clone(), config.service_id);
+        // Create metrics collector (holds the producer handle)
+        let collector = MetricsCollector::new(producer, config.service_id);
 
         Ok(Self {
             config,
             prometheus,
             collector,
-            producer,
         })
     }
 
@@ -113,27 +112,39 @@ impl Agent {
         for query in &self.config.queries {
             info!("Executing query: {}", query);
 
-            match self.prometheus.query_instant(query).await {
-                Ok(response) => {
-                    info!("Query '{}' returned {} results", query, response.data.result.len());
+            let metric_query = MetricQuery {
+                metric_name: query.clone(),
+                labels: HashMap::new(),
+                start_time: Utc::now()
+                    - chrono::Duration::seconds(self.config.interval_secs as i64),
+                end_time: Utc::now(),
+                step: Some(15),
+            };
 
-                    // Process each metric result
-                    for result in response.data.result {
-                        // Convert to Prometheus text format line
-                        let metric_name = query.clone();
-                        let labels: Vec<String> = result
-                            .metric
+            match self.prometheus.collect_metrics(metric_query).await {
+                Ok(metrics) => {
+                    info!("Query '{}' returned {} samples", query, metrics.len());
+
+                    for metric in metrics {
+                        // Convert to Prometheus text-format line with the real
+                        // sampled value.
+                        let labels: Vec<String> = metric
+                            .labels
                             .iter()
                             .map(|(k, v)| format!(r#"{}="{}""#, k, v))
                             .collect();
 
                         let line = if labels.is_empty() {
-                            format!("{} {}", metric_name, "1")
+                            format!("{} {}", metric.name, metric.value)
                         } else {
-                            format!(r#"{{{}}}{} {}"#, labels.join(","), metric_name, "1")
+                            format!(
+                                r#"{}{{{}}} {}"#,
+                                metric.name,
+                                labels.join(","),
+                                metric.value
+                            )
                         };
 
-                        // Collect the metric line
                         if let Err(e) = self.collector.collect_line(&line).await {
                             error!("Failed to collect metric line: {}", e);
                         }
@@ -226,10 +237,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut agent = Agent::new(config)?;
     agent.initialize().await?;
 
-    // Spawn the agent run loop in a task
+    // Spawn the agent run loop in a task; a oneshot lets us stop the loop
+    // and still run the agent's graceful shutdown path afterwards.
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let agent_task = tokio::spawn(async move {
-        if let Err(e) = agent.run().await {
-            error!("Agent run loop failed: {}", e);
+        tokio::select! {
+            result = agent.run() => {
+                if let Err(e) = result {
+                    error!("Agent run loop failed: {}", e);
+                }
+            }
+            _ = shutdown_rx => {}
+        }
+        if let Err(e) = agent.shutdown().await {
+            error!("Agent shutdown failed: {}", e);
         }
     });
 
@@ -238,8 +259,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Shutdown signal received, stopping agent...");
 
-    // Cancel the agent task
-    agent_task.abort();
+    // Stop the run loop and wait for graceful shutdown to finish
+    let _ = shutdown_tx.send(());
+    let _ = agent_task.await;
 
     info!("Agent stopped");
 

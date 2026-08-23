@@ -1,32 +1,28 @@
-//! # RustOps Remediation Engine
+//! # RustOps Remediation Engine (experimental, design-stage)
 //!
-//! Automated remediation engine with Temporal workflow orchestration,
-//! approval gates, and safety interlocks.
+//! Remediation workflow scaffolding: a policy engine with risk-based
+//! approval decisions, circuit breakers, blast-radius constraints,
+//! rollback strategies, and an in-process workflow engine.
 //!
-//! ## Features
+//! ## What is real
 //!
-//! - **Temporal Workflows**: Durable, replayable workflow execution
-//! - **Approval Gates**: Multi-factor approval based on risk level
-//! - **Blast Radius Limits**: Namespace and cluster-level constraints
-//! - **Circuit Breakers**: Stop after N failures
-//! - **Instant Rollback**: Automatic rollback on failure
-//! - **Safety Interlocks**: Multi-layer protection for critical actions
+//! - **Policy engine**: risk assessment and auto-approve / manual / block
+//!   decisions ([`policy`])
+//! - **Safety interlocks**: circuit breakers, blast-radius limits,
+//!   cooldowns, rollback bookkeeping ([`safety`])
+//! - **Workflow engine**: in-process orchestration of activity steps with
+//!   history ([`workflow`])
 //!
-//! ## Architecture
+//! ## What is not
 //!
-//! ```text
-//! Incident Detection
-//!       ↓
-//! Policy Engine (Risk Assessment)
-//!       ↓
-//! Decision: Auto-approve | Manual Approval | Block
-//!       ↓
-//! Temporal Workflow Execution
-//!       ↓
-//! Activity Executors (K8s, AWS, Azure, GCP)
-//!       ↓
-//! Verification & Rollback (if needed)
-//! ```
+//! - **Activities are simulated.** The only shipped executor is
+//!   [`activity::SimulatedActivityExecutor`], which logs and returns
+//!   `"simulated": true` payloads. Nothing here touches a real cluster or
+//!   cloud API yet.
+//! - There is **no Temporal integration** — workflows are plain in-process
+//!   async, not durable/replayable.
+//!
+//! This crate is not wired into the RustOps pipeline.
 
 pub mod activity;
 pub mod error;
@@ -35,7 +31,9 @@ pub mod safety;
 pub mod workflow;
 
 pub use error::{Error, Result};
-pub use policy::{ActionType, ApprovalStatus, PolicyDecision, PolicyEngine, RemediationPolicy, RiskLevel};
+pub use policy::{
+    ActionType, ApprovalStatus, PolicyDecision, PolicyEngine, RemediationPolicy, RiskLevel,
+};
 pub use safety::{BlastRadius, CircuitBreaker, RollbackManager, SafetyInterlock};
 pub use workflow::{RemediationWorkflow, WorkflowContext, WorkflowStatus};
 

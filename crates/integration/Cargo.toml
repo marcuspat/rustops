@@ -32,7 +32,6 @@ k8s-openapi = { workspace = true }
 
 # Encoding and utilities
 urlencoding = "2.1"
-wiremock = "0.6"
 base64 = "0.22"
 
 # Authentication
@@ -50,4 +49,4 @@ snap = "1"
 [dev-dependencies]
 tokio-test = "0.4"
 mockito = { workspace = true }
-wiremock = { workspace = true }
+wiremock = "0.6"

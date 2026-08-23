@@ -26,6 +26,7 @@ pub trait IdType: Clone + Copy + PartialEq + Eq + PartialOrd + Ord + Send + Sync
 /// Macro to implement newtype ID wrapper
 macro_rules! impl_id {
     ($name:ident, $prefix:expr) => {
+        #[doc = concat!("Strongly-typed UUID identifier (displayed with the `", $prefix, "` prefix).")]
         #[derive(
             Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
         )]
@@ -121,16 +122,16 @@ mod tests {
     #[test]
     fn test_id_from_str() {
         let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
-        let id = IncidentId::from_str(uuid_str).unwrap();
-        assert_eq!(id.to_string(), uuid_str);
+        let id = <IncidentId as IdType>::from_str(uuid_str).unwrap();
+        assert_eq!(IdType::to_string(&id), uuid_str);
     }
 
     #[test]
     fn test_id_type_safety() {
-        let incident_id = IncidentId::new();
-        let alert_id = AlertId::new();
+        let _incident_id = IncidentId::new();
+        let _alert_id = AlertId::new();
         // This should not compile - type safety enforced at compile time
-        // assert_eq!(incident_id, alert_id);
+        // assert_eq!(_incident_id, _alert_id);
     }
 
     #[test]
@@ -144,7 +145,7 @@ mod tests {
     #[test]
     fn test_id_display() {
         let id = IncidentId::new();
-        let s = id.to_string();
+        let s = format!("{id}");
         assert!(s.starts_with("inc_"));
     }
 }

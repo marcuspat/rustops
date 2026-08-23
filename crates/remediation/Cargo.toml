@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Automated remediation engine with Temporal workflows"
+description = "Experimental/design-stage: remediation workflow engine with policy gates, approval flow, circuit breakers, and rollback scaffolding — activities run against a clearly-labeled simulator; no real Kubernetes/cloud executors yet"
 
 [dependencies]
 # Workspace dependencies
@@ -20,13 +20,8 @@ tracing = { workspace = true }
 rustops-common = { path = "../common" }
 
 # Kubernetes
-kube = { version = "0.97", features = ["client", "runtime"], optional = true }
-k8s-openapi = { version = "0.23", features = ["v1_29"], optional = true }
 
 # Cloud providers
-aws-config = { version = "1.5", features = ["behavior-version-latest"], optional = true }
-aws-sdk-ec2 = { version = "1.57", optional = true }
-aws-sdk-rds = { version = "1.52", optional = true }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -39,8 +34,3 @@ mockall = "0.13"
 proptest = { workspace = true }
 criterion = { workspace = true }
 
-[features]
-default = ["kubernetes"]
-kubernetes = ["kube", "k8s-openapi"]
-aws = ["aws-config", "aws-sdk-ec2", "aws-sdk-rds"]
-full = ["kubernetes", "aws"]

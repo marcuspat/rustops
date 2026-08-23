@@ -13,10 +13,15 @@ use std::collections::HashMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IncidentStatus {
+    /// Open.
     Open,
+    /// Acknowledged.
     Acknowledged,
+    /// Investigating.
     Investigating,
+    /// Resolved.
     Resolved,
+    /// Closed.
     Closed,
 }
 

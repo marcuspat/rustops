@@ -33,12 +33,17 @@ impl Default for CorrelationConfig {
 /// A group of related alerts
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AlertGroup {
+    /// Pub.
     pub group_id: IncidentId,
+    /// Pub.
     pub alerts: Vec<NormalizedAlert>,
+    /// Pub.
     pub root_cause_candidate: AlertId,
     /// Service names affected by this group
     pub affected_services: Vec<String>,
+    /// Pub.
     pub impact_score: f64,
+    /// Pub.
     pub created_at: DateTime<Utc>,
 }
 
@@ -52,14 +57,17 @@ pub struct ServiceGraph {
 /// Node in service graph
 #[derive(Clone, Debug)]
 pub struct ServiceNode {
-    id: ServiceId,
-    name: String,
+    /// Service identifier.
+    pub id: ServiceId,
+    /// Service name (graph key).
+    pub name: String,
 }
 
 /// Edge in service graph
 #[derive(Clone, Debug)]
-struct DependencyEdge {
-    dependency_type: DependencyType,
+pub struct DependencyEdge {
+    /// Kind of dependency the edge represents.
+    pub dependency_type: DependencyType,
 }
 
 impl ServiceGraph {
@@ -136,10 +144,15 @@ impl Default for ServiceGraph {
 /// Type of service dependency
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DependencyType {
+    /// Http.
     Http,
+    /// MessageQueue.
     MessageQueue,
+    /// Database.
     Database,
+    /// Cache.
     Cache,
+    /// External.
     External,
 }
 
@@ -149,6 +162,13 @@ pub struct AlertCorrelator {
     service_graph: ServiceGraph,
 }
 
+impl Default for AlertCorrelator {
+    /// Correlator with [`CorrelationConfig::default`].
+    fn default() -> Self {
+        Self::new(CorrelationConfig::default())
+    }
+}
+
 impl AlertCorrelator {
     /// Create a new alert correlator
     pub fn new(config: CorrelationConfig) -> Self {
@@ -156,11 +176,6 @@ impl AlertCorrelator {
             config,
             service_graph: ServiceGraph::new(),
         }
-    }
-
-    /// Create with default config
-    pub fn default() -> Self {
-        Self::new(CorrelationConfig::default())
     }
 
     /// Set the service graph

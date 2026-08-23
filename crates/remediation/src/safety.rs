@@ -94,9 +94,9 @@ impl BlastRadius {
                 Ok(())
             }
             BlastRadiusScope::Region => Ok(()),
-            BlastRadiusScope::Global => {
-                Err(Error::BlastRadiusExceeded("Global impact not allowed".to_string()))
-            }
+            BlastRadiusScope::Global => Err(Error::BlastRadiusExceeded(
+                "Global impact not allowed".to_string(),
+            )),
         }
     }
 }
@@ -190,9 +190,9 @@ impl CircuitBreaker {
         *self.last_failure_time.write().await = Some(Utc::now());
 
         let mut state = self.state.write().await;
-        if *failure_count >= self.failure_threshold {
-            *state = CircuitBreakerState::Open;
-        } else if *state == CircuitBreakerState::HalfOpen {
+        // Trip on reaching the threshold; a failure while half-open re-opens
+        // immediately regardless of the count.
+        if *failure_count >= self.failure_threshold || *state == CircuitBreakerState::HalfOpen {
             *state = CircuitBreakerState::Open;
         }
     }
@@ -304,7 +304,10 @@ impl SafetyInterlock {
     /// Get circuit breaker state for action
     pub async fn circuit_breaker_state(&self, action: &ActionType) -> Option<CircuitBreakerState> {
         let breakers = self.circuit_breakers.read().await;
-        breakers.get(action).map(|b| b.state().await)
+        match breakers.get(action) {
+            Some(b) => Some(b.state().await),
+            None => None,
+        }
     }
 }
 
@@ -370,9 +373,7 @@ impl RollbackManager {
                 tracing::info!("Executing recreate rollback");
                 Ok(())
             }
-            RollbackStrategy::Custom { rollback_fn } => {
-                rollback_fn(context).await
-            }
+            RollbackStrategy::Custom { rollback_fn } => rollback_fn(context),
         }
     }
 
@@ -388,6 +389,9 @@ impl Default for RollbackManager {
     }
 }
 
+/// Signature for custom rollback functions.
+pub type RollbackFn = Arc<dyn Fn(&RollbackContext) -> Result<()> + Send + Sync>;
+
 /// Rollback strategy
 #[derive(Clone)]
 pub enum RollbackStrategy {
@@ -399,7 +403,8 @@ pub enum RollbackStrategy {
     Recreate { description: String },
     /// Custom rollback function
     Custom {
-        rollback_fn: Arc<dyn Fn(&RollbackContext) -> Result<()> + Send + Sync>,
+        /// The function invoked to perform the rollback.
+        rollback_fn: RollbackFn,
     },
 }
 
@@ -456,12 +461,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_blast_radius_check() {
-        let radius = BlastRadius::new(BlastRadiusScope::Namespace)
-            .with_namespace("production".to_string());
+        let radius =
+            BlastRadius::new(BlastRadiusScope::Namespace).with_namespace("production".to_string());
 
         let context = IncidentContext {
             incident_id: "test".to_string(),
-            severity: IncidentSeverity::High,
+            severity: crate::IncidentSeverity::High,
             service_name: "test".to_string(),
             namespace: "staging".to_string(),
             cluster: "test".to_string(),
@@ -479,7 +484,7 @@ mod tests {
 
         let context = IncidentContext {
             incident_id: "test".to_string(),
-            severity: IncidentSeverity::Medium,
+            severity: crate::IncidentSeverity::Medium,
             service_name: "test".to_string(),
             namespace: "default".to_string(),
             cluster: "test".to_string(),
@@ -489,17 +494,28 @@ mod tests {
         };
 
         // First action should succeed
-        assert!(interlock.check_safe(&ActionType::RestartService, &context).await.is_ok());
-        interlock.record_action(&ActionType::RestartService, true).await;
+        assert!(interlock
+            .check_safe(&ActionType::RestartService, &context)
+            .await
+            .is_ok());
+        interlock
+            .record_action(&ActionType::RestartService, true)
+            .await;
 
         // Second action should fail due to cooldown
-        assert!(interlock.check_safe(&ActionType::RestartService, &context).await.is_err());
+        assert!(interlock
+            .check_safe(&ActionType::RestartService, &context)
+            .await
+            .is_err());
 
         // Wait for cooldown
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         // Should succeed now
-        assert!(interlock.check_safe(&ActionType::RestartService, &context).await.is_ok());
+        assert!(interlock
+            .check_safe(&ActionType::RestartService, &context)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -517,6 +533,9 @@ mod tests {
             metadata: serde_json::json!({}),
         };
 
-        assert!(manager.execute(&ActionType::RestartService, &context).await.is_ok());
+        assert!(manager
+            .execute(&ActionType::RestartService, &context)
+            .await
+            .is_ok());
     }
 }

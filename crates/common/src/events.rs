@@ -61,70 +61,105 @@ pub enum EventType {
 pub enum EventPayload {
     /// Anomaly was detected
     AnomalyDetected {
+        /// Identifier of the detected anomaly.
         anomaly_id: AnomalyId,
+        /// Metric this event refers to.
         metric_id: MetricId,
+        /// Anomaly score in [0, 1].
         score: f64,
+        /// Detector confidence in [0, 1].
         confidence: f64,
+        /// Human-readable explanation.
         explanation: String,
     },
     /// Alert was created
     AlertCreated {
+        /// Identifier of the alert.
         alert_id: AlertId,
+        /// Short human-readable title.
         title: String,
+        /// Severity classification.
         severity: Severity,
+        /// Service this event concerns.
         service_id: ServiceId,
     },
     /// Alert was updated
     AlertUpdated {
+        /// Identifier of the alert.
         alert_id: AlertId,
+        /// Descriptions of what changed.
         changes: Vec<String>,
     },
     /// Alert was resolved
     AlertResolved {
+        /// Identifier of the alert.
         alert_id: AlertId,
+        /// How it was resolved.
         resolution: String,
     },
     /// Incident was created
     IncidentCreated {
+        /// Identifier of the incident.
         incident_id: IncidentId,
+        /// Short human-readable title.
         title: String,
+        /// Severity classification.
         severity: Severity,
+        /// Alerts grouped into this incident.
         alert_ids: Vec<AlertId>,
     },
     /// Incident was updated
     IncidentUpdated {
+        /// Identifier of the incident.
         incident_id: IncidentId,
+        /// Descriptions of what changed.
         changes: Vec<String>,
     },
     /// Incident was resolved
     IncidentResolved {
+        /// Identifier of the incident.
         incident_id: IncidentId,
+        /// How it was resolved.
         resolution: String,
+        /// Time to resolution, in seconds.
         mttr_seconds: u64,
     },
     /// Service dependency discovered
     DependencyDiscovered {
+        /// Dependent (calling) service.
         from_service: ServiceId,
+        /// Depended-on (called) service.
         to_service: ServiceId,
+        /// Kind of dependency.
         dependency_type: DependencyType,
     },
     /// Trace analysis completed
     TraceAnalysisCompleted {
+        /// Identifier of the trace.
         trace_id: TraceId,
+        /// Number of spans in the trace.
         span_count: usize,
+        /// Number of spans that errored.
         error_count: usize,
+        /// End-to-end trace latency in milliseconds.
         latency_ms: u64,
     },
     /// Metric threshold breached
     MetricThresholdBreached {
+        /// Metric this event refers to.
         metric_id: MetricId,
+        /// Configured threshold that was crossed.
         threshold: f64,
+        /// Observed value that crossed the threshold.
         actual_value: f64,
+        /// Service this event concerns.
         service_id: ServiceId,
     },
     /// Unknown event payload for forward compatibility
     Unknown {
+        /// Name of the custom event type.
         type_name: String,
+        /// Arbitrary event payload.
         data: serde_json::Value,
     },
 }
@@ -262,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_event_serialization() {
-        let event = DomainEvent::test_event(EventType::MetricThresholdBreached);
+        let event = DomainEvent::test_event(EventType::AnomalyDetected);
         let json = serde_json::to_string(&event).unwrap();
         let deserialized: DomainEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(event.event_id, deserialized.event_id);

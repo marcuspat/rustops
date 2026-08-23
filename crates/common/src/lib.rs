@@ -20,9 +20,6 @@ pub mod events;
 pub mod ids;
 pub mod telemetry;
 
-#[cfg(test)]
-pub mod testing;
-
 // Re-export common types
 pub use config::Config;
 pub use error::{Error, Result};

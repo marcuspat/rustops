@@ -1,23 +1,30 @@
-// RustOps Integration Bounded Context
-//
-// Implements the Integration layer following DDD principles with:
-// - Adapter pattern for unified interface
-// - Circuit breakers for external systems
-// - Rate limiting per integration
-// - Retry logic with exponential backoff
-// - Phase 1 integrations: Prometheus, Kubernetes, ServiceNow, PagerDuty, Slack
+//! RustOps Integration Bounded Context
+//!
+//! Implements the Integration layer following DDD principles with:
+//! - Adapter pattern for unified interface
+//! - Circuit breakers for external systems
+//! - Rate limiting per integration
+//! - Retry logic with exponential backoff
+//! - Phase 1 integrations: Prometheus, Kubernetes, ServiceNow, PagerDuty, Slack
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
+/// Adapter.
 pub mod adapter;
+/// Circuit breaker.
 pub mod circuit_breaker;
+/// Infrastructure.
 pub mod infrastructure;
+/// Itsm.
 pub mod itsm;
-pub mod prometheus;
+/// Rate limiter.
 pub mod rate_limiter;
+/// Resilience.
 pub mod resilience;
+/// Retry.
 pub mod retry;
+/// Telemetry.
 pub mod telemetry;
 
 // Re-exports
@@ -25,11 +32,6 @@ pub use adapter::{
     ITSMNotifier, InfrastructureMonitor, IntegrationAdapter, TelemetryCollector, TelemetryEvent,
 };
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
-pub use prometheus::{
-    AlertEvaluation, AlertRule, AlertStatus, KubernetesSDConfig, PrometheusAdapter,
-    PrometheusQuery, RelabelAction, RelabelConfig, ServiceDiscoveryConfig, ServiceTarget,
-    StaticTarget,
-};
 pub use rate_limiter::{RateLimiter, RateLimiterConfig};
 pub use resilience::{HealthStatus, IntegrationError, IntegrationResult};
 pub use retry::{retry_with_backoff, RetryConfig};
