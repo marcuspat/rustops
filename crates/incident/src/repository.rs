@@ -2,7 +2,6 @@
 //!
 //! Implements Command Query Responsibility Segregation.
 
-use crate::events::IncidentEvent;
 use crate::incident::{Incident, IncidentRepository, IncidentStatus};
 use rustops_common::{Error, IncidentId, Result, ServiceId};
 use std::collections::HashMap;
@@ -97,14 +96,23 @@ pub struct ReadModel {
 /// Projected incident data for queries
 #[derive(Clone, Debug)]
 pub struct IncidentProjection {
+    /// Pub.
     pub id: IncidentId,
+    /// Pub.
     pub title: String,
+    /// Pub.
     pub status: IncidentStatus,
+    /// Pub.
     pub severity: rustops_common::Severity,
+    /// Pub.
     pub affected_services: Vec<ServiceId>,
+    /// Pub.
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Pub.
     pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Pub.
     pub mttr_seconds: Option<u64>,
+    /// Pub.
     pub alert_count: usize,
 }
 
