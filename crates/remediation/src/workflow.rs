@@ -3,8 +3,8 @@
 //! Temporal workflow definitions for automated remediation actions.
 
 use crate::{
+    activity::{ActivityExecutor, ActivityInput},
     error::{Error, Result},
-    activity::{ActivityExecutor, ActivityInput, ActivityOutput},
     IncidentContext, RemediationConfig, RemediationResult,
 };
 use serde::{Deserialize, Serialize};
@@ -129,9 +129,9 @@ impl RestartServiceWorkflow {
     }
 }
 
-#[async_trait::async_trait]
-impl RemediationWorkflow for RestartServiceWorkflow {
-    async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+impl RestartServiceWorkflow {
+    /// The workflow body; `execute` bounds it with the configured timeout.
+    async fn run(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
         let workflow_id = context.workflow_id.clone();
         let incident_id = context.incident.incident_id.clone();
 
@@ -192,7 +192,9 @@ impl RemediationWorkflow for RestartServiceWorkflow {
                 incident_id: incident_id.clone(),
                 action: crate::ActionType::RestartService,
                 success: false,
-                message: restart_output.error.unwrap_or_else(|| "Restart failed".to_string()),
+                message: restart_output
+                    .error
+                    .unwrap_or_else(|| "Restart failed".to_string()),
                 completed_at: chrono::Utc::now(),
                 rolled_back: false,
                 details: restart_output.data,
@@ -240,6 +242,32 @@ impl RemediationWorkflow for RestartServiceWorkflow {
             })),
         })
     }
+}
+
+#[async_trait::async_trait]
+impl RemediationWorkflow for RestartServiceWorkflow {
+    async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+        let timeout = std::time::Duration::from_secs(self.config.default_workflow_timeout_secs);
+        let workflow_id = context.workflow_id.clone();
+        let incident_id = context.incident.incident_id.clone();
+        let outcome = tokio::time::timeout(timeout, self.run(context)).await;
+        match outcome {
+            Ok(result) => result,
+            Err(_) => {
+                context.state = WorkflowState::Failed;
+                Ok(RemediationResult {
+                    workflow_id,
+                    incident_id,
+                    action: crate::ActionType::RestartService,
+                    success: false,
+                    message: format!("Workflow timed out after {}s", timeout.as_secs()),
+                    completed_at: chrono::Utc::now(),
+                    rolled_back: false,
+                    details: None,
+                })
+            }
+        }
+    }
 
     fn name(&self) -> &str {
         "restart_service"
@@ -267,9 +295,9 @@ impl ScaleServiceWorkflow {
     }
 }
 
-#[async_trait::async_trait]
-impl RemediationWorkflow for ScaleServiceWorkflow {
-    async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+impl ScaleServiceWorkflow {
+    /// The workflow body; `execute` bounds it with the configured timeout.
+    async fn run(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
         let workflow_id = context.workflow_id.clone();
         let incident_id = context.incident.incident_id.clone();
 
@@ -310,7 +338,9 @@ impl RemediationWorkflow for ScaleServiceWorkflow {
                 incident_id,
                 action: crate::ActionType::ScaleService,
                 success: false,
-                message: scale_output.error.unwrap_or_else(|| "Scale failed".to_string()),
+                message: scale_output
+                    .error
+                    .unwrap_or_else(|| "Scale failed".to_string()),
                 completed_at: chrono::Utc::now(),
                 rolled_back: false,
                 details: scale_output.data,
@@ -338,6 +368,32 @@ impl RemediationWorkflow for ScaleServiceWorkflow {
                 "new_replicas": target_replicas
             })),
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl RemediationWorkflow for ScaleServiceWorkflow {
+    async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+        let timeout = std::time::Duration::from_secs(self.config.default_workflow_timeout_secs);
+        let workflow_id = context.workflow_id.clone();
+        let incident_id = context.incident.incident_id.clone();
+        let outcome = tokio::time::timeout(timeout, self.run(context)).await;
+        match outcome {
+            Ok(result) => result,
+            Err(_) => {
+                context.state = WorkflowState::Failed;
+                Ok(RemediationResult {
+                    workflow_id,
+                    incident_id,
+                    action: crate::ActionType::ScaleService,
+                    success: false,
+                    message: format!("Workflow timed out after {}s", timeout.as_secs()),
+                    completed_at: chrono::Utc::now(),
+                    rolled_back: false,
+                    details: None,
+                })
+            }
+        }
     }
 
     fn name(&self) -> &str {
@@ -395,12 +451,22 @@ impl WorkflowEngine {
             })),
         });
 
-        // Store workflow context
+        // Store workflow context, enforcing the configured concurrency limit.
         let mut workflows = self.active_workflows.write().await;
+        let in_flight = workflows
+            .values()
+            .filter(|c| matches!(c.state, WorkflowState::Pending | WorkflowState::Running))
+            .count();
+        if in_flight >= self.config.max_concurrent_actions {
+            return Err(Error::Workflow(format!(
+                "concurrency limit reached: {} workflows already in flight (max {})",
+                in_flight, self.config.max_concurrent_actions
+            )));
+        }
         workflows.insert(workflow_id.clone(), context.clone());
 
         // Execute workflow (in production, this would be async)
-        let executor = self.executor.clone();
+        let _executor = self.executor.clone();
         let workflows_ref = self.active_workflows.clone();
         let workflow_id_clone = workflow_id.clone();
 
@@ -478,12 +544,12 @@ impl WorkflowEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::activity::{CompositeActivityExecutor, KubernetesActivityExecutor};
+    use crate::activity::{CompositeActivityExecutor, SimulatedActivityExecutor};
 
     #[tokio::test]
     async fn test_restart_workflow() {
         let composite = CompositeActivityExecutor::new()
-            .add_executor(Box::new(KubernetesActivityExecutor::new().unwrap()));
+            .add_executor(Box::new(SimulatedActivityExecutor::new()));
 
         let executor: Arc<dyn ActivityExecutor> = Arc::new(composite);
         let config = RemediationConfig::default();
@@ -516,7 +582,7 @@ mod tests {
     #[tokio::test]
     async fn test_workflow_engine() {
         let composite = CompositeActivityExecutor::new()
-            .add_executor(Box::new(KubernetesActivityExecutor::new().unwrap()));
+            .add_executor(Box::new(SimulatedActivityExecutor::new()));
 
         let executor: Arc<dyn ActivityExecutor> = Arc::new(composite);
         let config = RemediationConfig::default();
