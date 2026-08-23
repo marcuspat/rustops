@@ -1,81 +1,28 @@
-//! # RustOps Knowledge Management
+//! # RustOps Knowledge (experimental)
 //!
-//! This crate provides knowledge management capabilities for the RustOps AIOps platform,
-//! including vector embeddings for semantic search, pattern storage, and runbook management.
+//! Building blocks for storing and searching operational knowledge:
 //!
-//! ## Features
+//! - **HNSW vector index** ([`hnsw::HNSWIndexer`]) — approximate
+//!   nearest-neighbor search (cosine distance, via `hnsw_rs`) over
+//!   **caller-supplied** embedding vectors
+//! - **Pattern extraction** ([`patterns::PatternExtractor`]) — derive
+//!   reusable remediation patterns from resolved incidents
+//! - **Runbook storage** ([`runbooks::InMemoryRunbookStorage`]) — store and
+//!   query automation procedures (in-memory)
 //!
-//! - **Vector Embeddings**: HNSW-indexed semantic search (150x-12,500x faster)
-//! - **Pattern Storage**: Store and retrieve successful remediation patterns
-//! - **Runbook Management**: Store and query automation procedures
-//! - **SONA Integration**: Self-Optimizing Neural Architecture for continuous learning
+//! ## What this crate is not (yet)
 //!
-//! ## Architecture
+//! There is **no embedding model** here: nothing in this crate turns text
+//! into vectors. Bring your own embeddings (from an external model or
+//! service) and this crate will index and search them. There is also no
+//! persistence — indexes and runbooks live in memory.
 //!
-//! This crate follows the Knowledge Management bounded context from the RustOps DDD model.
-//! See `/plans/ddd/` for the complete domain model.
-//!
-//! ## Usage
-//!
-//! ```rust,no_run
-//! use rustops_knowledge::KnowledgeBase;
-//!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     let kb = KnowledgeBase::new().await?;
-//!     // Store a pattern
-//!     kb.store_pattern("memory-leak-fix", "restart service").await?;
-//!     // Search for similar patterns
-//!     let results = kb.search("fix memory issue").await?;
-//!     Ok(())
-//! }
-//! ```
+//! This crate is **experimental** and not wired into the RustOps pipeline.
 
-pub mod embedding;
-pub mod pattern;
-pub mod runbook;
-pub mod repository;
-pub mod search;
+pub mod hnsw;
+pub mod patterns;
+pub mod runbooks;
 
-pub use embedding::Embedding;
-pub use pattern::Pattern;
-pub use runbook::Runbook;
-pub use repository::KnowledgeRepository;
-pub use search::SearchEngine;
-
-/// Knowledge base for storing and retrieving patterns, runbooks, and embeddings
-#[derive(Clone)]
-pub struct KnowledgeBase {
-    repository: KnowledgeRepository,
-    search: SearchEngine,
-}
-
-impl KnowledgeBase {
-    /// Create a new knowledge base
-    pub async fn new() -> anyhow::Result<Self> {
-        let repository = KnowledgeRepository::new().await?;
-        let search = SearchEngine::new(repository.clone()).await?;
-        Ok(Self { repository, search })
-    }
-
-    /// Get the underlying repository
-    pub fn repository(&self) -> &KnowledgeRepository {
-        &self.repository
-    }
-
-    /// Get the search engine
-    pub fn search(&self) -> &SearchEngine {
-        &self.search
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_knowledge_base_creation() {
-        let kb = KnowledgeBase::new().await;
-        assert!(kb.is_ok());
-    }
-}
+pub use hnsw::{HNSWIndexer, HNSWStats, SearchResult};
+pub use patterns::PatternExtractor;
+pub use runbooks::{InMemoryRunbookStorage, Runbook, RunbookQuery, RunbookStep};

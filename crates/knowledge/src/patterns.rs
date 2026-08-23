@@ -23,10 +23,7 @@ impl PatternExtractor {
     }
 
     /// Extract patterns from incident
-    pub async fn extract_from_incident(
-        &self,
-        incident: &IncidentData,
-    ) -> Result<Vec<Pattern>> {
+    pub async fn extract_from_incident(&self, incident: &IncidentData) -> Result<Vec<Pattern>> {
         let mut patterns = Vec::new();
 
         // Extract symptom patterns
@@ -44,15 +41,17 @@ impl PatternExtractor {
             patterns.push(action_seq);
         }
 
-        // Filter by confidence
-        patterns.retain(|p| p.confidence >= self.min_confidence);
+        // Filter by confidence and occurrence floor
+        patterns.retain(|p| {
+            p.confidence >= self.min_confidence && p.occurrence_count >= self.min_occurrences
+        });
 
         Ok(patterns)
     }
 
     fn extract_symptom_pattern(&self, incident: &IncidentData) -> Option<Pattern> {
         Some(Pattern {
-            id: ulid::Ulid::new().to_string(),
+            id: uuid::Uuid::new_v4().to_string(),
             pattern_type: PatternType::Symptom,
             name: incident.title.clone(),
             description: incident.description.clone(),
@@ -68,29 +67,27 @@ impl PatternExtractor {
     }
 
     fn extract_resolution_pattern(&self, incident: &IncidentData) -> Option<Pattern> {
-        if let Some(resolution) = &incident.resolution {
-            Some(Pattern {
-                id: ulid::Ulid::new().to_string(),
-                pattern_type: PatternType::Resolution,
-                name: format!("Resolution: {}", incident.title),
-                description: resolution.clone(),
-                confidence: 0.9,
-                occurrence_count: 1,
-                service: incident.service.clone(),
-                environment: incident.environment.clone(),
-                severity: incident.severity,
-                metadata: {
-                    let mut meta = HashMap::new();
-                    meta.insert("resolution_time_minutes".to_string(),
-                        incident.resolution_time.as_secs().to_string());
-                    meta
-                },
-                created_at: Utc::now(),
-                last_seen: Utc::now(),
-            })
-        } else {
-            None
-        }
+        incident.resolution.as_ref().map(|resolution| Pattern {
+            id: uuid::Uuid::new_v4().to_string(),
+            pattern_type: PatternType::Resolution,
+            name: format!("Resolution: {}", incident.title),
+            description: resolution.clone(),
+            confidence: 0.9,
+            occurrence_count: 1,
+            service: incident.service.clone(),
+            environment: incident.environment.clone(),
+            severity: incident.severity,
+            metadata: {
+                let mut meta = HashMap::new();
+                meta.insert(
+                    "resolution_time_minutes".to_string(),
+                    incident.resolution_time.as_secs().to_string(),
+                );
+                meta
+            },
+            created_at: Utc::now(),
+            last_seen: Utc::now(),
+        })
     }
 
     fn extract_action_sequences(&self, incident: &IncidentData) -> Result<Vec<Pattern>> {
@@ -98,7 +95,7 @@ impl PatternExtractor {
 
         for (i, action) in incident.actions.iter().enumerate() {
             patterns.push(Pattern {
-                id: ulid::Ulid::new().to_string(),
+                id: uuid::Uuid::new_v4().to_string(),
                 pattern_type: PatternType::ActionSequence,
                 name: format!("Action {}: {}", i + 1, action.name),
                 description: format!("{}: {}", action.name, action.description),
@@ -110,7 +107,10 @@ impl PatternExtractor {
                 metadata: {
                     let mut meta = HashMap::new();
                     meta.insert("action_type".to_string(), action.action_type.clone());
-                    meta.insert("duration_seconds".to_string(), action.duration.as_secs().to_string());
+                    meta.insert(
+                        "duration_seconds".to_string(),
+                        action.duration.as_secs().to_string(),
+                    );
                     meta
                 },
                 created_at: Utc::now(),
