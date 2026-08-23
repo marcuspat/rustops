@@ -65,4 +65,4 @@ proptest = { workspace = true }
 
 [features]
 default = []
-# neo4j = ["neo4j"]  # Uncomment when neo4j dependency is added
+neo4j = ["dep:neo4rs"]
