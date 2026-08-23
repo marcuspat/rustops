@@ -33,7 +33,7 @@ impl MetricsCollector {
                 match producer_clone.produce(envelope).await {
                     Ok(_) => {
                         count += 1;
-                        if count % 1000 == 0 {
+                        if count.is_multiple_of(1000) {
                             debug!("Produced {} metric envelopes", count);
                         }
                     }
@@ -228,12 +228,11 @@ impl LogCollector {
 /// Trace collector - ingests OpenTelemetry spans
 pub struct TraceCollector {
     sender: mpsc::Sender<TelemetryEnvelope>,
-    service_id: ServiceId,
 }
 
 impl TraceCollector {
     /// Create a new trace collector
-    pub fn new(producer: Arc<KafkaProducer>, service_id: ServiceId) -> Self {
+    pub fn new(producer: Arc<KafkaProducer>, _service_id: ServiceId) -> Self {
         let (sender, mut receiver) = mpsc::channel(CHANNEL_BUFFER);
         let producer_clone = producer.clone();
 
@@ -245,7 +244,7 @@ impl TraceCollector {
             }
         });
 
-        Self { sender, service_id }
+        Self { sender }
     }
 
     /// Collect a trace span
