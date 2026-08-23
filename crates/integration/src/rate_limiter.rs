@@ -34,6 +34,7 @@ impl Default for RateLimiterConfig {
 /// Rate limiter using token bucket algorithm
 pub struct RateLimiter {
     limiter: Arc<GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
+    config: RateLimiterConfig,
 }
 
 impl RateLimiter {
@@ -44,7 +45,13 @@ impl RateLimiter {
 
         Self {
             limiter: Arc::new(GovernorRateLimiter::direct(quota)),
+            config,
         }
+    }
+
+    /// The configuration this limiter was built with.
+    pub fn config(&self) -> &RateLimiterConfig {
+        &self.config
     }
 
     /// Acquire permission to proceed

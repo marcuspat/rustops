@@ -2,14 +2,13 @@
 //
 // Provides a consistent interface across all external system integrations
 
-use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
+use crate::resilience::{HealthStatus, IntegrationResult};
 use crate::{CircuitBreaker, CircuitBreakerConfig, RateLimiter, RateLimiterConfig, RetryConfig};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 /// Base trait for all integration adapters
 #[async_trait]
@@ -89,198 +88,291 @@ pub use crate::IntegrationKind;
 /// Metric query
 #[derive(Debug, Clone)]
 pub struct MetricQuery {
+    /// Pub.
     pub metric_name: String,
+    /// Pub.
     pub labels: HashMap<String, String>,
+    /// Pub.
     pub start_time: DateTime<Utc>,
+    /// Pub.
     pub end_time: DateTime<Utc>,
+    /// Pub.
     pub step: Option<u64>, // Step in seconds
 }
 
 /// Metric data point
 #[derive(Debug, Clone)]
 pub struct Metric {
+    /// Pub.
     pub name: String,
+    /// Pub.
     pub labels: HashMap<String, String>,
+    /// Pub.
     pub value: f64,
+    /// Pub.
     pub timestamp: DateTime<Utc>,
 }
 
 /// Log query
 #[derive(Debug, Clone)]
 pub struct LogQuery {
+    /// Pub.
     pub query: String,
+    /// Pub.
     pub start_time: DateTime<Utc>,
+    /// Pub.
     pub end_time: DateTime<Utc>,
+    /// Pub.
     pub limit: usize,
 }
 
 /// Log stream
 #[derive(Debug, Clone)]
 pub struct LogStream {
+    /// Pub.
     pub entries: Vec<LogEntry>,
+    /// Pub.
     pub has_more: bool,
 }
 
 /// Log entry
 #[derive(Debug, Clone)]
 pub struct LogEntry {
+    /// Pub.
     pub timestamp: DateTime<Utc>,
+    /// Pub.
     pub level: String,
+    /// Pub.
     pub message: String,
+    /// Pub.
     pub metadata: HashMap<String, String>,
 }
 
 /// Trace query
 #[derive(Debug, Clone)]
 pub struct TraceQuery {
+    /// Pub.
     pub trace_id: Option<String>,
+    /// Pub.
     pub start_time: DateTime<Utc>,
+    /// Pub.
     pub end_time: DateTime<Utc>,
+    /// Pub.
     pub min_duration: Option<u64>,
+    /// Pub.
     pub limit: usize,
 }
 
 /// Trace
 #[derive(Debug, Clone)]
 pub struct Trace {
+    /// Pub.
     pub id: String,
+    /// Pub.
     pub root_span_name: String,
+    /// Pub.
     pub duration_ms: u64,
+    /// Pub.
     pub start_time: DateTime<Utc>,
+    /// Pub.
     pub spans: Vec<Span>,
 }
 
 /// Span
 #[derive(Debug, Clone)]
 pub struct Span {
+    /// Pub.
     pub span_id: String,
+    /// Pub.
     pub parent_span_id: Option<String>,
+    /// Pub.
     pub operation: String,
+    /// Pub.
     pub start_time: DateTime<Utc>,
+    /// Pub.
     pub duration_ms: u64,
+    /// Pub.
     pub tags: HashMap<String, String>,
 }
 
 /// Telemetry event
 #[derive(Debug, Clone)]
 pub enum TelemetryEvent {
+    /// Metric.
     Metric(Metric),
+    /// Log.
     Log(LogEntry),
+    /// Trace.
     Trace(Trace),
 }
 
 /// Incident
 #[derive(Debug, Clone)]
 pub struct Incident {
+    /// Pub.
     pub id: Option<String>,
+    /// Pub.
     pub title: String,
+    /// Pub.
     pub description: String,
+    /// Pub.
     pub severity: IncidentSeverity,
+    /// Pub.
     pub status: IncidentStatus,
+    /// Pub.
     pub assigned_to: Option<String>,
+    /// Pub.
     pub created_at: DateTime<Utc>,
+    /// Pub.
     pub updated_at: Option<DateTime<Utc>>,
+    /// Pub.
     pub resolved_at: Option<DateTime<Utc>>,
 }
 
 /// Incident severity
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IncidentSeverity {
+    /// P1.
     P1, // Critical
+    /// P2.
     P2, // High
+    /// P3.
     P3, // Medium
+    /// P4.
     P4, // Low
 }
 
 /// Incident status
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IncidentStatus {
+    /// New.
     New,
+    /// Assigned.
     Assigned,
+    /// InProgress.
     InProgress,
+    /// Resolved.
     Resolved,
+    /// Closed.
     Closed,
 }
 
 /// Incident update
 #[derive(Debug, Clone)]
 pub struct IncidentUpdate {
+    /// Pub.
     pub status: Option<IncidentStatus>,
+    /// Pub.
     pub severity: Option<IncidentSeverity>,
+    /// Pub.
     pub description: Option<String>,
+    /// Pub.
     pub assigned_to: Option<String>,
+    /// Pub.
     pub resolution: Option<String>,
 }
 
 /// CMDB sync result
 #[derive(Debug, Clone)]
 pub struct CMDBSyncResult {
+    /// Pub.
     pub items_synced: usize,
+    /// Pub.
     pub items_updated: usize,
+    /// Pub.
     pub items_created: usize,
+    /// Pub.
     pub items_failed: usize,
+    /// Pub.
     pub errors: Vec<String>,
 }
 
 /// Resource filter
 #[derive(Debug, Clone)]
 pub struct ResourceFilter {
+    /// Pub.
     pub resource_type: Option<String>,
+    /// Pub.
     pub labels: HashMap<String, String>,
+    /// Pub.
     pub namespace: Option<String>,
 }
 
 /// Resource
 #[derive(Debug, Clone)]
 pub struct Resource {
+    /// Pub.
     pub id: String,
+    /// Pub.
     pub name: String,
+    /// Pub.
     pub resource_type: String,
+    /// Pub.
     pub namespace: Option<String>,
+    /// Pub.
     pub labels: HashMap<String, String>,
+    /// Pub.
     pub status: String,
 }
 
 /// Resource metrics
 #[derive(Debug, Clone)]
 pub struct ResourceMetrics {
+    /// Pub.
     pub resource_id: String,
+    /// Pub.
     pub cpu_percent: f64,
+    /// Pub.
     pub memory_percent: f64,
+    /// Pub.
     pub custom_metrics: HashMap<String, f64>,
+    /// Pub.
     pub timestamp: DateTime<Utc>,
 }
 
 /// Resource event
 #[derive(Debug, Clone)]
 pub struct ResourceEvent {
+    /// Pub.
     pub event_type: ResourceEventType,
+    /// Pub.
     pub resource: Resource,
+    /// Pub.
     pub timestamp: DateTime<Utc>,
 }
 
 /// Resource event type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceEventType {
+    /// Added.
     Added,
+    /// Modified.
     Modified,
+    /// Deleted.
     Deleted,
 }
 
 /// Infrastructure action
 #[derive(Debug, Clone)]
 pub struct InfraAction {
+    /// Pub.
     pub action_type: String,
+    /// Pub.
     pub resource_id: String,
+    /// Pub.
     pub parameters: HashMap<String, String>,
 }
 
 /// Action result
 #[derive(Debug, Clone)]
 pub struct ActionResult {
+    /// Pub.
     pub success: bool,
+    /// Pub.
     pub message: String,
+    /// Pub.
     pub output: Option<String>,
+    /// Pub.
     pub error: Option<String>,
 }
 

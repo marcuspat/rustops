@@ -131,21 +131,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_success_after_failure() {
-        let mut attempts = 0;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
 
-        let result = retry_simple(3, || async move {
-            attempts += 1;
-            if attempts < 3 {
-                Err("temporary failure")
-            } else {
-                Ok("success")
+        let attempts = Arc::new(AtomicU32::new(0));
+        let counter = attempts.clone();
+
+        let result = retry_simple(3, move || {
+            let counter = counter.clone();
+            async move {
+                let attempt = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                if attempt < 3 {
+                    Err("temporary failure")
+                } else {
+                    Ok("success")
+                }
             }
         })
         .await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
-        assert_eq!(attempts, 3);
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]

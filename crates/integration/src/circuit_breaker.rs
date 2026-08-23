@@ -10,8 +10,11 @@ use tokio::sync::RwLock;
 /// Circuit breaker state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
-    Closed,   // Normal operation
-    Open,     // Failing, reject calls
+    /// Closed.
+    Closed, // Normal operation
+    /// Open.
+    Open, // Failing, reject calls
+    /// HalfOpen.
     HalfOpen, // Testing if service recovered
 }
 
@@ -82,13 +85,16 @@ impl CircuitBreaker {
     {
         // Check circuit state
         {
-            let state_guard = self.state.read().await;
+            let mut state_guard = self.state.write().await;
             if state_guard.state == CircuitState::Open {
-                // Check if timeout has elapsed
-                if let Some(last_failure) = *self.last_failure_time.read().await {
-                    if last_failure.elapsed() < self.config.timeout {
-                        return Err(IntegrationError::CircuitBreakerOpen);
-                    }
+                if self.open_timeout_elapsed(&state_guard).await {
+                    // Timeout elapsed: move to half-open and let this call
+                    // through as the probe.
+                    state_guard.state = CircuitState::HalfOpen;
+                    state_guard.last_state_change = Instant::now();
+                    *self.success_count.write().await = 0;
+                } else {
+                    return Err(IntegrationError::CircuitBreakerOpen);
                 }
             }
         }
@@ -121,17 +127,44 @@ impl CircuitBreaker {
     pub async fn report_success(&self) {
         {
             let mut state = self.state.write().await;
-            if state.state == CircuitState::HalfOpen {
-                let mut success_count = self.success_count.write().await;
-                *success_count += 1;
 
-                if *success_count >= self.config.success_threshold {
-                    state.state = CircuitState::Closed;
-                    state.last_state_change = Instant::now();
-                    *success_count = 0;
+            // Callers that drive the breaker via report_* directly (without
+            // going through `call`) still need the Open -> HalfOpen
+            // transition once the timeout has elapsed.
+            if state.state == CircuitState::Open && self.open_timeout_elapsed(&state).await {
+                state.state = CircuitState::HalfOpen;
+                state.last_state_change = Instant::now();
+                *self.success_count.write().await = 0;
+            }
+
+            match state.state {
+                CircuitState::HalfOpen => {
+                    let mut success_count = self.success_count.write().await;
+                    *success_count += 1;
+
+                    if *success_count >= self.config.success_threshold {
+                        state.state = CircuitState::Closed;
+                        state.last_state_change = Instant::now();
+                        *success_count = 0;
+                        *self.failure_count.write().await = 0;
+                    }
+                }
+                CircuitState::Closed => {
+                    // A success breaks any failure streak: the error
+                    // threshold counts consecutive failures.
                     *self.failure_count.write().await = 0;
                 }
+                CircuitState::Open => {}
             }
+        }
+    }
+
+    /// Whether the open-state timeout has elapsed (measured from the last
+    /// failure, falling back to the state-change instant).
+    async fn open_timeout_elapsed(&self, state: &CircuitBreakerState) -> bool {
+        match *self.last_failure_time.read().await {
+            Some(last_failure) => last_failure.elapsed() >= self.config.timeout,
+            None => state.last_state_change.elapsed() >= self.config.timeout,
         }
     }
 
