@@ -23,3 +23,8 @@ tokio = { workspace = true, features = ["test-util", "macros"] }
 proptest = { workspace = true }
 rand = "0.8"
 tempfile = "3"
+criterion = { workspace = true }
+
+[[bench]]
+name = "event_bench"
+harness = false
