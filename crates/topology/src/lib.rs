@@ -41,6 +41,8 @@ pub use store::{GraphService, GraphStore, GraphStoreFactory, Neo4jConfig, Neo4jS
 /// Topology configuration
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct TopologyConfig {
+    /// Prometheus base URL for service discovery ("" disables discovery)
+    pub prometheus_url: String,
     /// Neo4j connection URI
     pub neo4j_uri: String,
     /// Neo4j username
@@ -66,9 +68,12 @@ pub struct TopologyConfig {
 impl Default for TopologyConfig {
     fn default() -> Self {
         Self {
-            neo4j_uri: "bolt://localhost:7687".to_string(),
-            neo4j_username: "neo4j".to_string(),
-            neo4j_password: "neo4j".to_string(),
+            prometheus_url: String::new(),
+            // Empty = in-memory topology only. The Neo4j store is a stub
+            // that errors on use, so it is no longer configured by default.
+            neo4j_uri: String::new(),
+            neo4j_username: String::new(),
+            neo4j_password: String::new(),
             discovery_interval_secs: 300,
             enable_realtime_updates: true,
             retention_days: 90,
@@ -104,9 +109,10 @@ impl TopologyService {
 
         let mut discovery_manager = DiscoveryManager::new(Some(event_store.clone()));
 
-        // Add Prometheus discovery if URL is configured
-        if !config.neo4j_uri.is_empty() {
-            let prometheus_discovery = PrometheusDiscovery::new(config.neo4j_uri.clone());
+        // Add Prometheus discovery if a Prometheus URL is configured.
+        // (This was previously — wrongly — keyed on the Neo4j URI.)
+        if !config.prometheus_url.is_empty() {
+            let prometheus_discovery = PrometheusDiscovery::new(config.prometheus_url.clone());
             discovery_manager.add_discovery(Box::new(prometheus_discovery));
         }
 
@@ -163,11 +169,19 @@ impl TopologyService {
             .await
     }
 
+    /// The configuration this service was created with.
+    pub fn service_config(&self) -> &TopologyConfig {
+        &self.config
+    }
+
     /// Analyze impact of service change
     pub async fn analyze_impact(
-        &self,
+        &mut self,
         service_id: &rustops_common::ServiceId,
     ) -> Result<ImpactAnalysis> {
+        // The analyzer works on a snapshot of the graph; refresh it so the
+        // analysis sees services/dependencies added since construction.
+        self.impact_analyzer.refresh_graph(self.graph.clone());
         self.impact_analyzer
             .analyze_service_impact(service_id)
             .await
@@ -219,7 +233,7 @@ impl TopologyService {
 
     /// Load topology from storage
     pub async fn load_from_storage(&mut self) -> Result<()> {
-        if let Some(store) = &self.graph_store {
+        if let Some(_store) = &self.graph_store {
             // Clear current graph
             // Note: This would need implementation in ServiceGraph
 
@@ -409,137 +423,5 @@ mod tests {
 
         assert!(stats.is_empty());
         assert_eq!(stats.average_dependencies_per_service(), 0.0);
-    }
-}
-
-#[cfg(feature = "cli")]
-pub mod cli {
-    //! CLI utilities for topology service
-
-    use super::*;
-    use clap::{Parser, Subcommand};
-    use std::env;
-
-    /// CLI arguments for topology management
-    #[derive(Parser, Debug)]
-    #[command(name = "rustops-topology")]
-    #[command(about = "Service topology management CLI")]
-    pub struct TopologyCli {
-        #[command(subcommand)]
-        pub command: Commands,
-    }
-
-    #[derive(Subcommand, Debug)]
-    pub enum Commands {
-        /// Run topology discovery
-        Discover {
-            /// Namespace to discover (default: all)
-            #[arg(short, long)]
-            namespace: Option<String>,
-            /// Include system namespaces
-            #[arg(long)]
-            include_system: bool,
-        },
-        /// Analyze impact of service change
-        Analyze {
-            /// Service ID to analyze
-            #[arg(short, long)]
-            service_id: String,
-            /// Maximum blast radius hops
-            #[arg(short, long, default_value = "5")]
-            hops: usize,
-        },
-        /// Show topology statistics
-        Stats,
-        /// Configure topology
-        Config {
-            #[command(subcommand)]
-            action: ConfigAction,
-        },
-    }
-
-    #[derive(Subcommand, Debug)]
-    pub enum ConfigAction {
-        /// Show current configuration
-        Show,
-        /// Validate configuration
-        Validate,
-    }
-
-    /// Run CLI application
-    pub async fn run_cli() -> Result<()> {
-        let cli = TopologyCli::parse();
-
-        match cli.command {
-            Commands::Discover {
-                namespace,
-                include_system,
-            } => {
-                println!("Discovering services in namespace: {:?}", namespace);
-                println!("Include system namespaces: {}", include_system);
-                // Implementation would go here
-            }
-            Commands::Analyze { service_id, hops } => {
-                println!("Analyzing impact for service: {}", service_id);
-                println!("Maximum blast radius hops: {}", hops);
-                // Implementation would go here
-            }
-            Commands::Stats => {
-                println!("Showing topology statistics");
-                // Implementation would go here
-            }
-            Commands::Config { action } => {
-                match action {
-                    ConfigAction::Show => {
-                        println!("Current topology configuration");
-                        // Implementation would go here
-                    }
-                    ConfigAction::Validate => {
-                        println!("Validating topology configuration");
-                        // Implementation would go here
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
-// For development convenience
-#[cfg(test)]
-pub mod test_helpers {
-    //! Test helpers for topology service
-
-    use super::*;
-    use std::str::FromStr;
-
-    /// Create test service node
-    pub fn test_service(id: &str, name: &str, namespace: &str) -> ServiceNode {
-        ServiceNode::new(
-            rustops_common::ServiceId::from_str(id).unwrap(),
-            Some(name.to_string()),
-            namespace.to_string(),
-            "test-cluster".to_string(),
-            ServiceType::Deployment,
-        )
-    }
-
-    /// Create test dependency edge
-    pub fn test_dependency(from: &str, to: &str) -> DependencyEdge {
-        DependencyEdge::new(
-            rustops_common::ServiceId::from_str(from).unwrap(),
-            rustops_common::ServiceId::from_str(to).unwrap(),
-            DependencyType::Calls,
-        )
-    }
-
-    /// Create in-memory topology service for testing
-    pub async fn test_topology_service() -> TopologyService {
-        let config = TopologyConfig {
-            neo4j_uri: String::new(), // Empty = in-memory only
-            ..Default::default()
-        };
-        TopologyService::new(config).await.unwrap()
     }
 }
