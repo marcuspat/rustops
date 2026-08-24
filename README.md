@@ -203,8 +203,7 @@ Multi-algorithm approach for optimal accuracy and performance:
   - IQR (Interquartile Range) for outlier detection
   - CUSUM for cumulative change detection
 
-- **ML-Based Detection** (~50ms latency)
-  - ONNX Runtime integration for model inference
+- **ML-Based Detection** (~50ms latency, ONNX Runtime integration not yet enabled)
   - Support for TensorFlow, PyTorch, scikit-learn models
   - Model versioning and hot-reloading
 
@@ -295,7 +294,7 @@ println!("Would affect {} services", impact.service_count);
 
 Intelligent knowledge storage and retrieval:
 
-- **Vector Embeddings** - Semantic search using HNSW (150x-12,500x faster)
+- **Vector Embeddings** - Semantic search using HNSW (performance not yet benchmarked)
 - **Pattern Storage** - Store successful remediation patterns
 - **Runbook Automation** - Link knowledge to executable actions
 - **Learning Loop** - Continuously improve from successful resolutions
@@ -554,18 +553,20 @@ cargo fmt -- --check
 
 ### Test Suite
 
-The project includes **139 tests** covering all bounded contexts:
+The project includes tests covering all bounded contexts:
 
 | Crate | Tests | Coverage Target |
-|-------|-------|-----------------|
-| common | 60 | >80% |
-| telemetry | 14 | >80% |
-| anomaly | 8 | >80% |
-| incident | 16 | >80% |
-| integration | 16 | >80% |
-| topology | 9 | >80% |
-| knowledge | 6 | >80% |
-| remediation | 16 | >80% |
+|-------|-------:|:---------------|
+| common | ? | >80% |
+| telemetry | ? | >80% |
+| anomaly | ? | >80% |
+| incident | ? | >80% |
+| integration | ? | >80% |
+| topology | ? | >80% |
+| knowledge | ? | >80% |
+| remediation | ? | >80% |
+
+> Run `cargo test --workspace` for current counts. README table will be updated after compilation fixes land.
 
 ### Running Tests
 
