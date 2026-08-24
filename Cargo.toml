@@ -1,3 +1,16 @@
+[package]
+name = "rustops"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Intelligent AIOps platform for automated monitoring, anomaly detection, and incident remediation"
+readme = "README.md"
+keywords = ["ops", "anomaly", "detection", "monitoring", "aiops"]
+categories = ["development-tools"]
+
 [workspace]
 members = [
     "crates/common",
