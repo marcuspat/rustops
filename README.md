@@ -13,6 +13,12 @@
 ## Overview
 
 RustOps is a comprehensive **AIOps (Artificial Intelligence for IT Operations)** platform built in Rust. It combines real-time monitoring, intelligent anomaly detection, automated incident management, and safe remediation workflows to empower DevOps teams with intelligent automation.
+## Demo
+
+![rustops-api starting and responding to health checks](rustops-demo.gif)
+
+*Recorded from the actual binary with [asciinema](https://asciinema.org) + [agg](https://github.com/asciinema/agg).*
+
 
 ### Key Capabilities
 
