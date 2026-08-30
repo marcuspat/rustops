@@ -53,6 +53,8 @@ pub enum EventType {
     ServiceRemoved,
     /// Service dependency discovered
     DependencyDiscovered,
+    /// Metric threshold breached
+    MetricThresholdBreached,
 }
 
 /// Event payload containing event-specific data

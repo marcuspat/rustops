@@ -7,20 +7,30 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Marker trait for all ID types
-pub trait IdType: Clone + Copy + PartialEq + Eq + PartialOrd + Ord + Send + Sync + 'static {
+///
+/// String conversion is provided via the standard [`std::str::FromStr`] and
+/// [`std::fmt::Display`] (and therefore `ToString`) supertraits rather than
+/// bespoke methods on this trait, so that a call like `T::from_str(s)` or
+/// `id.to_string()` on a concrete `$name` type resolves unambiguously
+/// instead of conflicting with the standard trait of the same name.
+pub trait IdType:
+    Clone
+    + Copy
+    + PartialEq
+    + Eq
+    + PartialOrd
+    + Ord
+    + Send
+    + Sync
+    + 'static
+    + std::str::FromStr<Err = uuid::Error>
+    + std::fmt::Display
+{
     /// Create a new random ID
     fn new() -> Self;
 
     /// Get the underlying UUID
     fn as_uuid(&self) -> Uuid;
-
-    /// Create from a UUID string
-    fn from_str(s: &str) -> Result<Self, uuid::Error>
-    where
-        Self: Sized;
-
-    /// Convert to string
-    fn to_string(&self) -> String;
 }
 
 /// Macro to implement newtype ID wrapper
@@ -61,14 +71,6 @@ macro_rules! impl_id {
 
             fn as_uuid(&self) -> Uuid {
                 self.0
-            }
-
-            fn from_str(s: &str) -> Result<Self, uuid::Error> {
-                Ok(Self(Uuid::parse_str(s)?))
-            }
-
-            fn to_string(&self) -> String {
-                self.0.to_string()
             }
         }
 
@@ -111,6 +113,7 @@ impl_id!(ResourceId, "res_");
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn test_id_creation() {
@@ -122,7 +125,9 @@ mod tests {
     fn test_id_from_str() {
         let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
         let id = IncidentId::from_str(uuid_str).unwrap();
-        assert_eq!(id.to_string(), uuid_str);
+        // Display (and therefore `to_string()`) always includes the type's
+        // prefix, so compare the underlying UUID instead of the raw input.
+        assert_eq!(id.as_uuid().to_string(), uuid_str);
     }
 
     #[test]

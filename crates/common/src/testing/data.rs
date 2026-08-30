@@ -1,9 +1,11 @@
 //! Test data generation utilities.
 
 use crate::config::Config;
-use crate::telemetry::{LogEntry, Metric};
+use crate::telemetry::{LogEntry, LogLevel, Metric, MetricType};
+use crate::{MetricId, ServiceId};
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::SeedableRng;
 use std::collections::HashMap;
 
 /// Generates random test data for tests.
@@ -36,8 +38,11 @@ impl TestDataGenerator {
     /// Generates a random metric.
     pub fn metric(&mut self) -> Metric {
         Metric {
+            id: MetricId::new(),
             name: self.random_metric_name(),
+            metric_type: MetricType::Gauge,
             value: self.rng.gen::<f64>() * 100.0,
+            service_id: ServiceId::new(),
             labels: self.random_labels(),
             timestamp: self.random_timestamp(),
         }
@@ -48,6 +53,7 @@ impl TestDataGenerator {
         LogEntry {
             level: self.random_log_level(),
             message: self.random_string(20..100),
+            service_id: ServiceId::new(),
             timestamp: self.random_timestamp_nanos(),
             labels: self.random_labels(),
         }
@@ -84,9 +90,15 @@ impl TestDataGenerator {
         names.choose(&mut self.rng).unwrap().to_string()
     }
 
-    fn random_log_level(&mut self) -> String {
-        let levels = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
-        levels.choose(&mut self.rng).unwrap().to_string()
+    fn random_log_level(&mut self) -> LogLevel {
+        let levels = [
+            LogLevel::Trace,
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warn,
+            LogLevel::Error,
+        ];
+        *levels.choose(&mut self.rng).unwrap()
     }
 
     fn random_labels(&mut self) -> HashMap<String, String> {
@@ -205,8 +217,8 @@ mod tests {
         let mut gen = TestDataGenerator::new();
         let metric = gen.metric();
 
-        let now = chrono::Utc::now().timestamp();
-        let age_seconds = now - metric.timestamp;
+        let now = chrono::Utc::now();
+        let age_seconds = (now - metric.timestamp).num_seconds();
 
         assert!(age_seconds >= 0);
         assert!(

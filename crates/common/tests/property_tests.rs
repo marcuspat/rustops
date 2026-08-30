@@ -1,7 +1,7 @@
 //! Property-based tests for common types.
 
 use proptest::prelude::*;
-use rustops_common::{config::Config, telemetry::Metric};
+use rustops_common::{config::Config, telemetry::Metric, MetricId, MetricType, ServiceId};
 
 /// Property: Metric value should always be finite when created.
 proptest! {
@@ -13,10 +13,13 @@ proptest! {
             labels.insert("test".to_string(), "value".to_string());
 
             let metric = Metric {
+                id: MetricId::new(),
                 name: "test_metric".to_string(),
+                metric_type: MetricType::Gauge,
                 value,
+                service_id: ServiceId::new(),
                 labels,
-                timestamp: chrono::Utc::now().timestamp(),
+                timestamp: chrono::Utc::now(),
             };
 
             prop_assert_eq!(metric.value, value);
@@ -35,11 +38,16 @@ proptest! {
         let mut labels = std::collections::HashMap::new();
         labels.insert("key".to_string(), "value".to_string());
 
+        let ts = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0).unwrap();
+
         let metric = Metric {
+            id: MetricId::new(),
             name: name.clone(),
+            metric_type: MetricType::Gauge,
             value,
+            service_id: ServiceId::new(),
             labels: labels.clone(),
-            timestamp,
+            timestamp: ts,
         };
 
         // Serialize to JSON
@@ -50,21 +58,19 @@ proptest! {
 
         prop_assert_eq!(restored.name, name);
         prop_assert_eq!(restored.value, value);
-        prop_assert_eq!(restored.timestamp, timestamp);
+        prop_assert_eq!(restored.timestamp.timestamp(), timestamp);
         prop_assert_eq!(restored.labels, labels);
     }
 }
 
 /// Property: Config default has reasonable values.
-proptest! {
-    #[test]
-    fn test_config_default_values() {
-        let config = Config::default();
+#[test]
+fn test_config_default_values() {
+    let config = Config::default();
 
-        prop_assert!(config.agent.collection_interval_seconds > 0);
-        prop_assert!(config.agent.collection_interval_seconds <= 3600); // Max 1 hour
-        prop_assert!(!config.pipeline.kafka_brokers.is_empty());
-    }
+    assert!(config.agent.collection_interval_seconds > 0);
+    assert!(config.agent.collection_interval_seconds <= 3600); // Max 1 hour
+    assert!(!config.pipeline.kafka_brokers.is_empty());
 }
 
 /// Property: Multiple metrics can have the same name but different values.
@@ -77,14 +83,17 @@ proptest! {
             .iter()
             .enumerate()
             .map(|(i, &value)| Metric {
+                id: MetricId::new(),
                 name: "cpu_usage".to_string(),
+                metric_type: MetricType::Gauge,
                 value,
+                service_id: ServiceId::new(),
                 labels: {
                     let mut labels = std::collections::HashMap::new();
                     labels.insert("instance".to_string(), format!("host-{}", i));
                     labels
                 },
-                timestamp: chrono::Utc::now().timestamp(),
+                timestamp: chrono::Utc::now(),
             })
             .collect();
 
@@ -113,10 +122,13 @@ proptest! {
         labels.insert(key.clone(), value.clone());
 
         let metric = Metric {
+            id: MetricId::new(),
             name: "test".to_string(),
+            metric_type: MetricType::Gauge,
             value: 42.0,
+            service_id: ServiceId::new(),
             labels,
-            timestamp: chrono::Utc::now().timestamp(),
+            timestamp: chrono::Utc::now(),
         };
 
         prop_assert_eq!(metric.labels.get(&key), Some(&value));
@@ -131,17 +143,21 @@ proptest! {
     ) {
         let now = chrono::Utc::now().timestamp();
         let timestamp = now + offset;
+        let ts = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0).unwrap();
 
         let metric = Metric {
+            id: MetricId::new(),
             name: "test".to_string(),
+            metric_type: MetricType::Gauge,
             value: 42.0,
+            service_id: ServiceId::new(),
             labels: std::collections::HashMap::new(),
-            timestamp,
+            timestamp: ts,
         };
 
         // Should be within reasonable range (year 2000-2030)
-        prop_assert!(metric.timestamp > 946684800); // 2000-01-01
-        prop_assert!(metric.timestamp < 1893456000); // 2030-01-01
+        prop_assert!(metric.timestamp.timestamp() > 946684800); // 2000-01-01
+        prop_assert!(metric.timestamp.timestamp() < 1893456000); // 2030-01-01
     }
 }
 
@@ -149,7 +165,7 @@ proptest! {
 proptest! {
     #[test]
     fn test_metric_aggregation_invariants(
-        values in prop::collection::vec(prop::num::f64::NORMAL..0.0..100.0, 2..100)
+        values in prop::collection::vec(0.0f64..100.0, 2..100)
     ) {
         prop_assert!(!values.is_empty());
 
