@@ -173,7 +173,19 @@ mod tests {
 
         assert_eq!(metric1.name, metric2.name);
         assert_eq!(metric1.value, metric2.value);
-        assert_eq!(metric1.timestamp, metric2.timestamp);
+        // `timestamp` is `Utc::now()` minus a seeded random offset, so two
+        // independently-constructed generators - even with the same seed -
+        // won't produce a bit-identical timestamp (their `Utc::now()` calls
+        // happen microseconds apart). What the seed does guarantee is the
+        // same *offset*, so the two timestamps should land within a second
+        // of each other.
+        let diff_ms = (metric1.timestamp - metric2.timestamp)
+            .num_milliseconds()
+            .abs();
+        assert!(
+            diff_ms < 1000,
+            "seeded generators should produce timestamps within 1s of each other, got {diff_ms}ms apart"
+        );
     }
 
     #[test]
