@@ -558,13 +558,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_graph_service_creation() {
-        // This test would require a real Neo4j instance
-        // For now, we test the creation with mocked data
+        // `MockGraphStore` returns `Ok` with empty data from every load
+        // method (no services, no dependencies, no errors). `GraphService::new`
+        // handles that gracefully - there is simply nothing to load into the
+        // graph - so construction genuinely succeeds. The original assertion
+        // (`is_err()`) assumed a real Neo4j instance was required and would
+        // fail without one, but that's not what this code path does: a
+        // store that legitimately has no data is not an error condition.
         let store = Box::new(MockGraphStore::new());
 
         let service = GraphService::new(store).await;
-        // This will fail because MockGraphStore returns empty data
-        assert!(service.is_err());
+        assert!(service.is_ok());
+        let service = service.unwrap();
+        assert_eq!(service.graph().service_count(), 0);
     }
 }
 

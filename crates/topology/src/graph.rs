@@ -10,7 +10,7 @@ use crate::{
     // Note: ServiceType, HealthStatus, DependencyType, Protocol are defined in model.rs
 };
 use petgraph::{
-    algo::{astar, dijkstra},
+    algo::astar,
     stable_graph::NodeIndex,
     visit::{Dfs, EdgeRef, Walker},
     Directed, Graph,
@@ -248,7 +248,14 @@ impl ServiceGraph {
         Ok(())
     }
 
-    /// Find all services that depend on the given service (upstream dependencies)
+    /// Find all services that depend on the given service (upstream dependencies).
+    ///
+    /// "Upstream" means services that call *into* `service_id`, i.e. services
+    /// reachable by walking dependency edges backwards (incoming edges), not
+    /// forwards. A plain forward `Dfs` (as used by
+    /// `find_downstream_dependencies`) only ever finds nodes reachable via
+    /// outgoing edges, which for a leaf/sink service is nothing - it can
+    /// never find the callers.
     pub fn find_upstream_dependencies(&self, service_id: &ServiceId) -> Result<Vec<ServiceNode>> {
         let start_index =
             *self
@@ -260,12 +267,22 @@ impl ServiceGraph {
                 })?;
 
         let mut upstream = Vec::new();
-        let mut dfs = Dfs::new(&self.graph, start_index);
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        visited.insert(start_index);
+        queue.push_back(start_index);
 
-        while let Some(node_index) = dfs.next(&self.graph) {
-            if node_index != start_index {
-                if let Some(node) = self.graph.node_weight(node_index) {
-                    upstream.push(node.clone());
+        while let Some(node_index) = queue.pop_front() {
+            for edge_ref in self
+                .graph
+                .edges_directed(node_index, petgraph::Direction::Incoming)
+            {
+                let source = edge_ref.source();
+                if visited.insert(source) {
+                    if let Some(node) = self.graph.node_weight(source) {
+                        upstream.push(node.clone());
+                    }
+                    queue.push_back(source);
                 }
             }
         }
@@ -298,7 +315,16 @@ impl ServiceGraph {
         Ok(downstream)
     }
 
-    /// Calculate blast radius for a service
+    /// Calculate blast radius for a service.
+    ///
+    /// The blast radius of a service failing is the set of services that
+    /// *depend on it* (directly or transitively) and would therefore be
+    /// affected - i.e. everything reachable by walking dependency edges
+    /// backwards from `service_id`. The previous implementation walked
+    /// outgoing edges (what `service_id` depends on), so a sink/leaf service
+    /// such as a database - which nothing points away from - always came
+    /// back with zero affected services, even though upstream callers like
+    /// an API and frontend clearly are affected when the database goes down.
     pub fn calculate_blast_radius(
         &self,
         service_id: &ServiceId,
@@ -317,7 +343,8 @@ impl ServiceGraph {
         let mut total_paths = 0;
         let mut hops_distribution = HashMap::new();
 
-        // BFS to find all services within max_hops
+        // BFS backwards (incoming edges) to find all services within max_hops
+        // that depend on `service_id`.
         let mut queue = VecDeque::new();
         queue.push_back((start_index, 0));
 
@@ -333,16 +360,14 @@ impl ServiceGraph {
                 }
             }
 
-            // Add neighbors to queue
+            // Add callers (incoming edges) to queue
             for edge_ref in self
                 .graph
-                .edges_directed(node_index, petgraph::Direction::Outgoing)
+                .edges_directed(node_index, petgraph::Direction::Incoming)
             {
                 let next_hops = hops + 1;
                 if next_hops <= max_hops {
-                    if let Some((_, target)) = self.graph.edge_endpoints(edge_ref.id()) {
-                        queue.push_back((target, next_hops));
-                    }
+                    queue.push_back((edge_ref.source(), next_hops));
                 }
             }
         }
@@ -365,7 +390,14 @@ impl ServiceGraph {
         })
     }
 
-    /// Find the shortest path between two services
+    /// Find the shortest path between two services.
+    ///
+    /// Uses A* (equivalent to Dijkstra with a zero heuristic here) to get
+    /// both the cost *and* the actual node sequence in one pass. The
+    /// previous implementation only checked reachability via `dijkstra`
+    /// (which returns costs, not paths) and then fabricated a fake
+    /// "path" containing just the endpoints, silently dropping every
+    /// intermediate hop.
     pub fn find_shortest_path(
         &self,
         from: &ServiceId,
@@ -388,23 +420,24 @@ impl ServiceGraph {
                     identifier: to.to_string(),
                 })?;
 
-        // Use Dijkstra's algorithm to find if path exists
-        let result = dijkstra(&self.graph, from_index, Some(to_index), |_| 1);
+        let result = astar(
+            &self.graph,
+            from_index,
+            |node| node == to_index,
+            |_edge| 1,
+            |_node| 0,
+        );
 
-        // Check if target is reachable
-        if result.contains_key(&to_index) {
-            // For now, return a simple path with just the two nodes
-            // A proper implementation would reconstruct the full path
-            let mut service_path = Vec::new();
-            if let Some(from_node) = self.graph.node_weight(from_index) {
-                service_path.push(from_node.clone());
+        match result {
+            Some((_cost, path)) => {
+                let service_path = path
+                    .into_iter()
+                    .filter_map(|idx| self.graph.node_weight(idx))
+                    .cloned()
+                    .collect();
+                Ok(Some(service_path))
             }
-            if let Some(to_node) = self.graph.node_weight(to_index) {
-                service_path.push(to_node.clone());
-            }
-            Ok(Some(service_path))
-        } else {
-            Ok(None)
+            None => Ok(None),
         }
     }
 

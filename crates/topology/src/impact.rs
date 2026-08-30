@@ -144,13 +144,21 @@ pub struct AffectedService {
 }
 
 /// Impact severity enumeration
+///
+/// Variants are declared in ascending order of severity (`Low` first,
+/// `Critical` last) so that the derived `Ord`/`PartialOrd` - which ranks
+/// variants by declaration order - makes `Critical` the greatest value.
+/// Declaring `Critical` first would make it compare as *less than* every
+/// other variant, which is the opposite of the intended "higher severity
+/// sorts higher" semantics used by callers (and asserted directly by
+/// `test_impact_severity_ordering`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImpactSeverity {
-    Critical,
-    High,
-    Medium,
     Low,
+    Medium,
+    High,
+    Critical,
 }
 
 /// Risk assessment result
