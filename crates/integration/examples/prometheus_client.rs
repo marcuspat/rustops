@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 RustOps Prometheus Integration Example");
 
     // Create Prometheus adapter with configuration
-    let prometheus = PrometheusAdapter::new(
+    let mut prometheus = PrometheusAdapter::new(
         "rustops-prometheus",    // Unique adapter ID
         "http://localhost:9090", // Prometheus URL
         None::<(&str, &str)>,    // Basic auth (None for no auth)
