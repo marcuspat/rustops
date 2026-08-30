@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
 /// Domain event for topology changes
@@ -269,18 +269,26 @@ pub trait TopologyEventStore: Send + Sync {
 }
 
 /// In-memory event store implementation
+///
+/// The underlying storage is held behind `Arc`, so cloning an
+/// `InMemoryEventStore` produces another handle to the *same* store rather
+/// than an independent snapshot. This matters because the store is
+/// routinely cloned and handed to multiple collaborators (a `ServiceGraph`,
+/// a `DiscoveryManager`, an `EventEmitter`, ...) that are all expected to
+/// observe each other's writes - the event-sourcing pattern this type
+/// implements only works if "the event store" refers to one shared log,
+/// not a family of forked copies that silently diverge the moment any one
+/// of them stores an event.
 pub struct InMemoryEventStore {
-    events: RwLock<Vec<TopologyEvent>>,
-    service_index: RwLock<HashMap<ServiceId, Vec<usize>>>,
+    events: Arc<RwLock<Vec<TopologyEvent>>>,
+    service_index: Arc<RwLock<HashMap<ServiceId, Vec<usize>>>>,
 }
 
 impl Clone for InMemoryEventStore {
     fn clone(&self) -> Self {
-        let events = self.events.read().unwrap();
-        let service_index = self.service_index.read().unwrap();
         Self {
-            events: RwLock::new(events.clone()),
-            service_index: RwLock::new(service_index.clone()),
+            events: Arc::clone(&self.events),
+            service_index: Arc::clone(&self.service_index),
         }
     }
 }
@@ -289,16 +297,16 @@ impl InMemoryEventStore {
     /// Create new in-memory event store
     pub fn new() -> Self {
         Self {
-            events: RwLock::new(Vec::new()),
-            service_index: RwLock::new(HashMap::new()),
+            events: Arc::new(RwLock::new(Vec::new())),
+            service_index: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     /// Create with initial capacity
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            events: RwLock::new(Vec::with_capacity(capacity)),
-            service_index: RwLock::new(HashMap::new()),
+            events: Arc::new(RwLock::new(Vec::with_capacity(capacity))),
+            service_index: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -792,5 +800,28 @@ mod tests {
         assert_eq!(stats.total_events, 2);
         assert_eq!(stats.service_events, 1);
         assert_eq!(stats.dependency_events, 1);
+    }
+
+    #[tokio::test]
+    async fn test_clone_shares_underlying_store() {
+        // Cloning must hand back a handle to the SAME store, not an
+        // independent snapshot - this is what lets `TopologyService`
+        // share one event log across its graph, discovery manager, and
+        // impact analyzer by cloning the store into each of them.
+        let store = InMemoryEventStore::new();
+        let cloned = store.clone();
+
+        let service_id = ServiceId::new();
+        cloned
+            .store_event(TopologyEvent::ServiceAdded {
+                service_id,
+                service_name: Some("test".to_string()),
+                service_type: ServiceType::Deployment,
+            })
+            .unwrap();
+
+        // Written through the clone, but visible through the original.
+        assert_eq!(store.get_all_events().unwrap().len(), 1);
+        assert_eq!(store.get_service_events(&service_id).unwrap().len(), 1);
     }
 }
