@@ -298,7 +298,7 @@ mod tests {
             timeout: std::time::Duration::from_secs(5),
         };
 
-        let adapter = PrometheusAdapter::new(config);
+        let mut adapter = PrometheusAdapter::new(config);
         adapter.initialize().await.unwrap();
 
         let query = MetricQuery {
