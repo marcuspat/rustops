@@ -620,7 +620,7 @@ mod tests {
         let adapter = PrometheusAdapter::new(
             "test-prometheus",
             "http://localhost:9090",
-            None,
+            None::<(&str, &str)>,
             CircuitBreakerConfig::default(),
             RateLimiterConfig::default(),
             RetryConfig::default(),
@@ -638,7 +638,7 @@ mod tests {
         let adapter = PrometheusAdapter::new(
             "test-prometheus",
             "http://localhost:9090",
-            None,
+            None::<(&str, &str)>,
             CircuitBreakerConfig::default(),
             RateLimiterConfig::default(),
             RetryConfig::default(),
@@ -654,7 +654,7 @@ mod tests {
         let adapter = PrometheusAdapter::new(
             "test-prometheus",
             "http://localhost:9090",
-            None,
+            None::<(&str, &str)>,
             CircuitBreakerConfig::default(),
             RateLimiterConfig::default(),
             RetryConfig::default(),
@@ -672,7 +672,7 @@ mod tests {
         let adapter = PrometheusAdapter::new(
             "test-prometheus",
             "http://localhost:9090",
-            None,
+            None::<(&str, &str)>,
             CircuitBreakerConfig::default(),
             RateLimiterConfig::default(),
             RetryConfig::default(),
@@ -694,7 +694,7 @@ mod tests {
         let adapter = PrometheusAdapter::new(
             "test-prometheus",
             "http://localhost:9090",
-            None,
+            None::<(&str, &str)>,
             CircuitBreakerConfig::default(),
             RateLimiterConfig::default(),
             RetryConfig::default(),
