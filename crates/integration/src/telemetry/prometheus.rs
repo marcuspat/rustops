@@ -275,15 +275,22 @@ mod tests {
     async fn test_prometheus_query() {
         let mock_server = MockServer::start().await;
 
+        // `collect_metrics` builds a range query (`/api/v1/query_range`,
+        // with start/end/step params), not an instant query
+        // (`/api/v1/query`). The mock previously matched the wrong path, so
+        // wiremock had no matching route and every request came back
+        // unmatched, which `IntegrationResult` surfaces as an error -
+        // failing `assert!(result.is_ok())` regardless of the response body
+        // configured below.
         Mock::given(method("GET"))
-            .and(path("/api/v1/query"))
+            .and(path("/api/v1/query_range"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "status": "success",
                 "data": {
-                    "resultType": "vector",
+                    "resultType": "matrix",
                     "result": [{
                         "metric": {"__name__": "up", "job": "prometheus"},
-                        "value": [1234567890.0, "1.0"]
+                        "values": [[1234567890.0, 1.0]]
                     }]
                 }
             })))

@@ -74,12 +74,45 @@ impl CircuitBreaker {
         }
     }
 
+    /// If the circuit is `Open` and the configured timeout has elapsed since
+    /// the last failure, move it to `HalfOpen` so a subsequent success can
+    /// close it again. Without this, nothing in the circuit breaker ever
+    /// leaves the `Open` state - `report_success` only acts while already
+    /// `HalfOpen`, and `call()`'s timeout check let operations through again
+    /// but never updated the state - so a circuit that opened once could
+    /// never recover.
+    async fn maybe_transition_to_half_open(&self) {
+        let should_transition = {
+            let state_guard = self.state.read().await;
+            if state_guard.state != CircuitState::Open {
+                false
+            } else {
+                match *self.last_failure_time.read().await {
+                    Some(last_failure) => last_failure.elapsed() >= self.config.timeout,
+                    None => false,
+                }
+            }
+        };
+
+        if should_transition {
+            let mut state_guard = self.state.write().await;
+            // Re-check under the write lock in case another task already
+            // transitioned it.
+            if state_guard.state == CircuitState::Open {
+                state_guard.state = CircuitState::HalfOpen;
+                state_guard.last_state_change = Instant::now();
+            }
+        }
+    }
+
     /// Execute operation with circuit breaker protection
     pub async fn call<F, T, E>(&self, operation: F) -> Result<T, IntegrationError>
     where
         F: std::future::Future<Output = Result<T, E>>,
         E: std::fmt::Display,
     {
+        self.maybe_transition_to_half_open().await;
+
         // Check circuit state
         {
             let state_guard = self.state.read().await;
@@ -119,6 +152,8 @@ impl CircuitBreaker {
 
     /// Report successful call
     pub async fn report_success(&self) {
+        self.maybe_transition_to_half_open().await;
+
         {
             let mut state = self.state.write().await;
             if state.state == CircuitState::HalfOpen {
@@ -153,6 +188,7 @@ impl CircuitBreaker {
 
     /// Get current circuit state
     pub async fn state(&self) -> CircuitState {
+        self.maybe_transition_to_half_open().await;
         let state = self.state.read().await;
         state.state
     }

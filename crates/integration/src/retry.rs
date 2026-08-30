@@ -133,12 +133,23 @@ mod tests {
     async fn test_retry_success_after_failure() {
         let mut attempts = 0;
 
-        let result = retry_simple(3, || async move {
+        // The attempt counter is incremented synchronously in the `FnMut`
+        // closure body (not inside the returned future). Incrementing it
+        // inside an `async move` block instead would make each call capture
+        // its own copy of `attempts` (it's `Copy`), so mutations there would
+        // never be visible to later invocations and the closure would look
+        // like it always failed on "attempt 1" - that's exactly what caused
+        // `result.is_ok()` to fail here: the operation could never actually
+        // reach its third, successful attempt.
+        let result = retry_simple(3, || {
             attempts += 1;
-            if attempts < 3 {
-                Err("temporary failure")
-            } else {
-                Ok("success")
+            let attempt = attempts;
+            async move {
+                if attempt < 3 {
+                    Err("temporary failure")
+                } else {
+                    Ok("success")
+                }
             }
         })
         .await;
