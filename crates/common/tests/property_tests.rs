@@ -57,7 +57,17 @@ proptest! {
         let restored: Metric = serde_json::from_str(&json).unwrap();
 
         prop_assert_eq!(restored.name, name);
-        prop_assert_eq!(restored.value, value);
+        // Compare with a tiny relative tolerance rather than bit-for-bit
+        // equality: serializing an f64 to JSON text and parsing it back can
+        // land on an adjacent representable value for some inputs, so an
+        // exact `==` is not a safe property to assert for a text-based
+        // round trip.
+        prop_assert!(
+            (restored.value - value).abs() <= value.abs() * 1e-9 + 1e-9,
+            "value did not round-trip within tolerance: {} vs {}",
+            restored.value,
+            value
+        );
         prop_assert_eq!(restored.timestamp.timestamp(), timestamp);
         prop_assert_eq!(restored.labels, labels);
     }
@@ -116,7 +126,7 @@ proptest! {
     #[test]
     fn test_labels_arbitrary_strings(
         key in "[a-zA-Z0-9_]{1,30}",
-        value in "\\PC{[^\\x00-\\x1F]}{0,100}" // Non-control characters
+        value in "\\PC{0,100}" // Non-control characters
     ) {
         let mut labels = std::collections::HashMap::new();
         labels.insert(key.clone(), value.clone());
