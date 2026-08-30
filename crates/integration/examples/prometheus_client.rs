@@ -244,7 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Listen for events for a short time
     println!("Listening for events for 5 seconds...");
-    tokio::time::timeout(Duration::from_secs(5), async {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while let Some(event) = receiver.recv().await {
             match event {
                 TelemetryEvent::Metric(metric) => {
