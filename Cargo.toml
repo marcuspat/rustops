@@ -12,6 +12,7 @@ keywords = ["ops", "anomaly", "detection", "monitoring", "aiops"]
 categories = ["development-tools"]
 
 [workspace]
+resolver = "2"
 members = [
     "crates/common",
     "crates/telemetry",
@@ -23,10 +24,6 @@ members = [
     "crates/agent",
     "crates/pipeline",
 ]
-
-[default-bin]
-name = "rustops-api"
-resolver = "2"
 
 [workspace.package]
 version = "0.1.1"
