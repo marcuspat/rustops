@@ -61,10 +61,10 @@ async fn test_prometheus_config() {
         RateLimiterConfig::default(),
         RetryConfig {
             max_attempts: 3,
-            base_delay: std::time::Duration::from_millis(100),
-            max_delay: std::time::Duration::from_secs(60),
-            backoff_factor: 2.0,
-            jitter: true,
+            initial_interval: std::time::Duration::from_millis(100),
+            max_interval: std::time::Duration::from_secs(60),
+            multiplier: 2.0,
+            randomization_factor: 0.2,
         },
     );
 
