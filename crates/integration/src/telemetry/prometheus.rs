@@ -240,6 +240,12 @@ struct PrometheusResponse {
 
 #[derive(Debug, serde::Deserialize)]
 struct PrometheusData {
+    // The Prometheus HTTP API returns this field as `resultType`
+    // (camelCase). Without the rename, serde looks for a literal
+    // `result_type` key, doesn't find it, and fails deserialization -
+    // which `query_api` turns into `IntegrationError::Deserialization`,
+    // making every real (and every correctly-mocked) response an error.
+    #[serde(rename = "resultType")]
     pub result_type: String,
     pub result: Vec<PrometheusResult>,
 }
