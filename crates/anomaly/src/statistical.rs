@@ -104,7 +104,10 @@ impl AnomalyDetector for ZScoreDetector {
                 .map(|m| m.value)
                 .collect();
 
-            if values.len() < 10 {
+            // Need at least a handful of samples for the mean/stddev to be
+            // meaningful; 5 is the minimum where sample variance is not
+            // dominated by a single point.
+            if values.len() < 5 {
                 continue; // Not enough data
             }
 
