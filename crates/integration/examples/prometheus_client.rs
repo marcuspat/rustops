@@ -13,6 +13,7 @@ use rustops_integration::{
     prometheus::{
         AlertEvaluation, AlertRule, AlertStatus, KubernetesSDConfig, PrometheusAdapter,
         PrometheusQuery, RelabelAction, RelabelConfig, ServiceDiscoveryConfig, ServiceTarget,
+        StaticTarget,
     },
     CircuitBreakerConfig, RateLimiterConfig, RetryConfig,
 };
@@ -29,22 +30,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prometheus = PrometheusAdapter::new(
         "rustops-prometheus",    // Unique adapter ID
         "http://localhost:9090", // Prometheus URL
-        None,                    // Basic auth (None for no auth)
+        None::<(&str, &str)>,    // Basic auth (None for no auth)
         CircuitBreakerConfig {
-            failure_threshold: 3,
-            recovery_timeout: std::time::Duration::from_secs(10),
-            expected_duration: std::time::Duration::from_secs(30),
+            error_threshold: 3,
+            success_threshold: 2,
+            timeout: std::time::Duration::from_secs(10),
+            max_calls: 100,
         },
         RateLimiterConfig {
-            limit: 100,                                 // 100 requests per window
-            window: std::time::Duration::from_secs(60), // 60-second window
+            requests_per_second: 100, // 100 requests per second
+            burst: 200,
         },
         RetryConfig {
             max_attempts: 3,
-            base_delay: std::time::Duration::from_millis(100),
-            max_delay: std::time::Duration::from_secs(5),
-            backoff_factor: 2.0,
-            jitter: true,
+            initial_interval: std::time::Duration::from_millis(100),
+            max_interval: std::time::Duration::from_secs(5),
+            multiplier: 2.0,
+            randomization_factor: 0.2,
         },
     );
 
@@ -161,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             selectors: HashMap::new(),
         }),
         static_configs: Some(vec![
-            ServiceTarget {
+            StaticTarget {
                 targets: vec!["localhost:9090".to_string()],
                 labels: {
                     let mut labels = HashMap::new();
@@ -169,7 +171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     labels
                 },
             },
-            ServiceTarget {
+            StaticTarget {
                 targets: vec!["node-exporter:9100".to_string()],
                 labels: {
                     let mut labels = HashMap::new();
@@ -251,9 +253,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         metric.name, metric.value, metric.timestamp
                     );
                 }
-                TelemetryEvent::Alert(alert) => {
-                    println!("🚨 Alert: {} - {:?}", alert.rule_name, alert.status);
-                }
+                _ => {}
             }
         }
     })
