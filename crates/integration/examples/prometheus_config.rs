@@ -5,12 +5,11 @@
 //! and service discovery configurations.
 
 use rustops_integration::{
-    adapter::IntegrationConfig,
     prometheus::{
         AlertRule, KubernetesSDConfig, PrometheusAdapter, RelabelAction, RelabelConfig,
         ServiceDiscoveryConfig, StaticTarget,
     },
-    CircuitBreakerConfig, RateLimiterConfig, RetryConfig,
+    CircuitBreakerConfig, IntegrationConfig, IntegrationKind, RateLimiterConfig, RetryConfig,
 };
 use std::collections::HashMap;
 
@@ -18,23 +17,24 @@ use std::collections::HashMap;
 pub fn production_prometheus_config() -> IntegrationConfig {
     IntegrationConfig {
         id: "prometheus-production".to_string(),
-        kind: crate::IntegrationKind::TelemetryCollector,
+        kind: IntegrationKind::TelemetryCollector,
         enabled: true,
         circuit_breaker: CircuitBreakerConfig {
-            failure_threshold: 3,
-            recovery_timeout: std::time::Duration::from_secs(30),
-            expected_duration: std::time::Duration::from_secs(5),
+            error_threshold: 3,
+            success_threshold: 2,
+            timeout: std::time::Duration::from_secs(30),
+            max_calls: 100,
         },
         rate_limiter: RateLimiterConfig {
-            limit: 1000,
-            window: std::time::Duration::from_secs(60),
+            requests_per_second: 1000,
+            burst: 2000,
         },
         retry: RetryConfig {
             max_attempts: 5,
-            base_delay: std::time::Duration::from_millis(100),
-            max_delay: std::time::Duration::from_secs(10),
-            backoff_factor: 2.0,
-            jitter: true,
+            initial_interval: std::time::Duration::from_millis(100),
+            max_interval: std::time::Duration::from_secs(10),
+            multiplier: 2.0,
+            randomization_factor: 0.2,
         },
         timeout: std::time::Duration::from_secs(30),
     }
@@ -47,20 +47,21 @@ pub fn create_production_adapter() -> PrometheusAdapter {
         "https://prometheus-prod.example.com:9090",
         Some(("admin", "secure-password")),
         CircuitBreakerConfig {
-            failure_threshold: 3,
-            recovery_timeout: std::time::Duration::from_secs(30),
-            expected_duration: std::time::Duration::from_secs(5),
+            error_threshold: 3,
+            success_threshold: 2,
+            timeout: std::time::Duration::from_secs(30),
+            max_calls: 100,
         },
         RateLimiterConfig {
-            limit: 1000,
-            window: std::time::Duration::from_secs(60),
+            requests_per_second: 1000,
+            burst: 2000,
         },
         RetryConfig {
             max_attempts: 5,
-            base_delay: std::time::Duration::from_millis(100),
-            max_delay: std::time::Duration::from_secs(10),
-            backoff_factor: 2.0,
-            jitter: true,
+            initial_interval: std::time::Duration::from_millis(100),
+            max_interval: std::time::Duration::from_secs(10),
+            multiplier: 2.0,
+            randomization_factor: 0.2,
         },
     )
 }
@@ -226,23 +227,24 @@ pub fn production_alert_rules() -> Vec<AlertRule> {
 pub fn development_prometheus_config() -> IntegrationConfig {
     IntegrationConfig {
         id: "prometheus-development".to_string(),
-        kind: crate::IntegrationKind::TelemetryCollector,
+        kind: IntegrationKind::TelemetryCollector,
         enabled: true,
         circuit_breaker: CircuitBreakerConfig {
-            failure_threshold: 1,
-            recovery_timeout: std::time::Duration::from_secs(10),
-            expected_duration: std::time::Duration::from_secs(2),
+            error_threshold: 1,
+            success_threshold: 1,
+            timeout: std::time::Duration::from_secs(10),
+            max_calls: 100,
         },
         rate_limiter: RateLimiterConfig {
-            limit: 100,
-            window: std::time::Duration::from_secs(30),
+            requests_per_second: 100,
+            burst: 200,
         },
         retry: RetryConfig {
             max_attempts: 3,
-            base_delay: std::time::Duration::from_millis(100),
-            max_delay: std::time::Duration::from_secs(5),
-            backoff_factor: 2.0,
-            jitter: false,
+            initial_interval: std::time::Duration::from_millis(100),
+            max_interval: std::time::Duration::from_secs(5),
+            multiplier: 2.0,
+            randomization_factor: 0.0,
         },
         timeout: std::time::Duration::from_secs(10),
     }
@@ -253,22 +255,23 @@ pub fn create_development_adapter() -> PrometheusAdapter {
     PrometheusAdapter::new(
         "prometheus-development",
         "http://prometheus-dev:9090",
-        None, // No auth in dev
+        None::<(&str, &str)>, // No auth in dev
         CircuitBreakerConfig {
-            failure_threshold: 1,
-            recovery_timeout: std::time::Duration::from_secs(10),
-            expected_duration: std::time::Duration::from_secs(2),
+            error_threshold: 1,
+            success_threshold: 1,
+            timeout: std::time::Duration::from_secs(10),
+            max_calls: 100,
         },
         RateLimiterConfig {
-            limit: 100,
-            window: std::time::Duration::from_secs(30),
+            requests_per_second: 100,
+            burst: 200,
         },
         RetryConfig {
             max_attempts: 3,
-            base_delay: std::time::Duration::from_millis(100),
-            max_delay: std::time::Duration::from_secs(5),
-            backoff_factor: 2.0,
-            jitter: false,
+            initial_interval: std::time::Duration::from_millis(100),
+            max_interval: std::time::Duration::from_secs(5),
+            multiplier: 2.0,
+            randomization_factor: 0.0,
         },
     )
 }
@@ -337,3 +340,5 @@ mod tests {
         assert!(static_config.static_configs.is_some());
     }
 }
+
+fn main() {}
