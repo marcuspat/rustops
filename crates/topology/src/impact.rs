@@ -391,6 +391,18 @@ impl ImpactAnalyzer {
         self
     }
 
+    /// Replace the graph the analyzer operates on.
+    ///
+    /// `ServiceGraph` is plain (non-shared) data, so an `ImpactAnalyzer`
+    /// built once at startup only ever sees the graph as it existed at
+    /// that moment - it does not observe later mutations made through a
+    /// separately held `&mut ServiceGraph`. Callers that keep a graph
+    /// alongside a long-lived analyzer (e.g. `TopologyService`) need to
+    /// push the current graph in before each analysis.
+    pub fn set_graph(&mut self, graph: ServiceGraph) {
+        self.graph = graph;
+    }
+
     /// Analyze impact of a service change
     pub async fn analyze_service_impact(&self, service_id: &ServiceId) -> Result<ImpactAnalysis> {
         info!("Analyzing impact for service: {}", service_id);

@@ -165,9 +165,17 @@ impl TopologyService {
 
     /// Analyze impact of service change
     pub async fn analyze_impact(
-        &self,
+        &mut self,
         service_id: &rustops_common::ServiceId,
     ) -> Result<ImpactAnalysis> {
+        // `self.impact_analyzer` was built once in `new()` with a *copy* of
+        // `self.graph` as it existed at that moment. `ServiceGraph` is
+        // plain (non-shared) data, so that copy never sees services or
+        // dependencies added afterward via `graph_mut()` - every analysis
+        // would silently run against a stale, usually-empty graph and fail
+        // with `NotFound` for any service added post-construction. Refresh
+        // the analyzer's graph from the current, live one before each call.
+        self.impact_analyzer.set_graph(self.graph.clone());
         self.impact_analyzer
             .analyze_service_impact(service_id)
             .await

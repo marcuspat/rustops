@@ -239,14 +239,76 @@ impl rustops_topology::discovery::Discovery for MockDiscovery {
 
 #[tokio::test]
 async fn test_impact_analysis() {
-    let graph = ServiceGraph::new(None);
+    // An empty graph with a service ID that was never registered cannot
+    // produce a meaningful impact analysis - `calculate_blast_radius`
+    // correctly errors on an unknown service, and even if it didn't, an
+    // empty graph has nothing to report as affected. The original version
+    // of this test asserted `!impact.blast_radius.affected_services.is_empty()`
+    // and `!impact.recommendations.is_empty()` against exactly that empty
+    // setup, which could never hold. Build a small graph with a real
+    // dependency chain and a business-critical service instead, so the
+    // analysis has something genuine to compute and the assertions match
+    // an actually-reachable outcome.
+    let mut graph = ServiceGraph::new(None);
+
+    let service_db = ServiceNode::new(
+        ServiceId::new(),
+        Some("database".to_string()),
+        "default".to_string(),
+        "test-cluster".to_string(),
+        ServiceType::StatefulSet,
+    );
+    let mut service_api = ServiceNode::new(
+        ServiceId::new(),
+        Some("api".to_string()),
+        "default".to_string(),
+        "test-cluster".to_string(),
+        ServiceType::Deployment,
+    );
+    service_api
+        .labels
+        .insert("criticality".to_string(), "high".to_string());
+    let service_frontend = ServiceNode::new(
+        ServiceId::new(),
+        Some("frontend".to_string()),
+        "default".to_string(),
+        "test-cluster".to_string(),
+        ServiceType::Deployment,
+    );
+
+    let db_id = service_db.id;
+    let api_id = service_api.id;
+    let frontend_id = service_frontend.id;
+
+    graph.add_service(service_db).unwrap();
+    graph.add_service(service_api).unwrap();
+    graph.add_service(service_frontend).unwrap();
+
+    // frontend -> api -> database
+    graph
+        .add_dependency(
+            frontend_id,
+            api_id,
+            DependencyEdge::new(frontend_id, api_id, DependencyType::Calls),
+        )
+        .unwrap();
+    graph
+        .add_dependency(
+            api_id,
+            db_id,
+            DependencyEdge::new(api_id, db_id, DependencyType::Calls),
+        )
+        .unwrap();
+
     let analyzer = ImpactAnalyzer::new(graph, None);
 
-    // Test impact analysis (will return default analysis)
-    let service_id = ServiceId::new();
-    let impact = analyzer.analyze_service_impact(&service_id).await.unwrap();
+    // Analyze impact of the database failing: api and frontend depend on
+    // it (directly and transitively) and should show up as affected, and
+    // since api is marked business-critical, the analyzer should surface
+    // at least one recommendation.
+    let impact = analyzer.analyze_service_impact(&db_id).await.unwrap();
 
-    assert_eq!(impact.source_service, service_id);
+    assert_eq!(impact.source_service, db_id);
     assert!(!impact.blast_radius.affected_services.is_empty());
     assert!(!impact.recommendations.is_empty());
 
