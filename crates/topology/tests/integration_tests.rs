@@ -21,14 +21,23 @@ async fn test_topology_service_end_to_end() {
     };
     let mut service = TopologyService::new(config).await.unwrap();
 
-    // Create test services
-    let service_a = ServiceNode::new(
+    // Create test services. `service-a` is marked business-critical so
+    // that analyzing the impact of `service-b` failing has something
+    // concrete to report: a critical dependent service affected - which
+    // is what actually drives `generate_recommendations` to produce
+    // output. An empty, unlabeled two-service graph triggers none of its
+    // recommendation conditions (no critical services affected, fewer
+    // than 5 total affected services, no mitigations available).
+    let mut service_a = ServiceNode::new(
         ServiceId::new(),
         Some("service-a".to_string()),
         "default".to_string(),
         "test-cluster".to_string(),
         ServiceType::Deployment,
     );
+    service_a
+        .labels
+        .insert("criticality".to_string(), "high".to_string());
 
     let service_b = ServiceNode::new(
         ServiceId::new(),
@@ -42,7 +51,7 @@ async fn test_topology_service_end_to_end() {
     service.graph_mut().add_service(service_a).unwrap();
     service.graph_mut().add_service(service_b).unwrap();
 
-    // Add dependency
+    // Add dependency: service-a calls service-b.
     let services = service.graph().get_all_services();
     let dependency = DependencyEdge::new(
         services[0].id,
@@ -60,11 +69,19 @@ async fn test_topology_service_end_to_end() {
     assert_eq!(stats.service_count, 2);
     assert_eq!(stats.dependency_count, 1);
 
-    // Test impact analysis
+    // Test impact analysis: analyze the *depended-upon* service
+    // (service-b) failing, not the caller. Blast radius walks incoming
+    // edges (who depends on the failing service), so service-a - which
+    // calls service-b and is marked critical - is what should show up as
+    // affected and drive a recommendation. Analyzing service-a itself
+    // (nothing depends on it) would correctly yield an empty blast
+    // radius, which is what the original version of this test asserted
+    // against.
     let services = service.graph().get_all_services();
-    let service_id = services[0].id;
-    let impact = service.analyze_impact(&service_id).await.unwrap();
-    assert_eq!(impact.source_service, service_id);
+    let service_b_id = services[1].id;
+    let impact = service.analyze_impact(&service_b_id).await.unwrap();
+    assert_eq!(impact.source_service, service_b_id);
+    assert!(!impact.blast_radius.affected_services.is_empty());
     assert!(!impact.recommendations.is_empty());
 
     println!("Integration test passed: End-to-end topology service workflow");
@@ -169,7 +186,11 @@ async fn test_event_system() {
         .emit_dependency_added(service_id, to_service_id, DependencyType::Calls)
         .unwrap();
 
-    // Test event retrieval
+    // Test event retrieval: `service_id` should show both its own
+    // `ServiceAdded` event and the `DependencyAdded` event where it is
+    // the source endpoint (fixed in `InMemoryEventStore::store_event` to
+    // index dependency events under both endpoints, not drop them from
+    // the per-service index entirely).
     let service_events = event_store.get_service_events(&service_id).unwrap();
     assert_eq!(service_events.len(), 2);
 

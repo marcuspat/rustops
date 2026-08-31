@@ -324,16 +324,42 @@ impl TopologyEventStore for InMemoryEventStore {
         let event_index = events.len();
         events.push(event.clone());
 
-        // Update service index for service events
+        // Update service index. Service events (`ServiceAdded`/`Removed`/
+        // `Updated`) index under their own `service_id()`. Dependency
+        // events carry no single `service_id()` (it's `None` for them),
+        // but they still concern both endpoints of the edge - a caller
+        // asking "what happened to this service" via
+        // `get_service_events` needs to see dependency changes that
+        // touch it as either the source or the target, not just its own
+        // add/remove/update events.
+        let mut service_index =
+            self.service_index
+                .write()
+                .map_err(|_| rustops_common::Error::Config {
+                    message: "Failed to acquire write lock for service index".to_string(),
+                })?;
         if let Some(service_id) = event.service_id() {
-            let mut service_index =
-                self.service_index
-                    .write()
-                    .map_err(|_| rustops_common::Error::Config {
-                        message: "Failed to acquire write lock for service index".to_string(),
-                    })?;
             service_index
-                .entry(service_id.clone())
+                .entry(*service_id)
+                .or_insert_with(Vec::new)
+                .push(event_index);
+        } else if let TopologyEvent::DependencyAdded {
+            from_service_id,
+            to_service_id,
+            ..
+        }
+        | TopologyEvent::DependencyRemoved {
+            from_service_id,
+            to_service_id,
+            ..
+        } = &event
+        {
+            service_index
+                .entry(*from_service_id)
+                .or_insert_with(Vec::new)
+                .push(event_index);
+            service_index
+                .entry(*to_service_id)
                 .or_insert_with(Vec::new)
                 .push(event_index);
         }
