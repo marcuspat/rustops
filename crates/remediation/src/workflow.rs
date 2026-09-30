@@ -473,14 +473,22 @@ impl WorkflowEngine {
         tokio::spawn(async move {
             let result = workflow.execute(&mut context).await;
 
-            // Update workflow state
+            // Write the whole mutated context back into the map — state,
+            // history and metadata — not just the terminal state, so
+            // get_workflow_status reports real progress even when execute()
+            // timed out (its RemediationResult carries success=false but the
+            // local context mutations were the only record of the steps).
+            // A context cancelled while running stays cancelled.
             let mut workflows = workflows_ref.write().await;
             if let Some(ctx) = workflows.get_mut(&workflow_id_clone) {
-                ctx.state = if result.as_ref().map(|r| r.success).unwrap_or(false) {
-                    WorkflowState::Completed
-                } else {
-                    WorkflowState::Failed
-                };
+                if ctx.state != WorkflowState::Cancelled {
+                    context.state = if result.as_ref().map(|r| r.success).unwrap_or(false) {
+                        WorkflowState::Completed
+                    } else {
+                        WorkflowState::Failed
+                    };
+                    *ctx = context;
+                }
             }
 
             tracing::info!(

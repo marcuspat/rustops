@@ -41,17 +41,17 @@ impl AnomalyDetector for ZScoreDetector {
         let start = std::time::Instant::now();
         let mut anomalies = Vec::new();
 
-        // Group values by metric name once (instead of re-filtering the
-        // batch for every point).
-        let mut by_name: HashMap<&str, Vec<f64>> = HashMap::new();
-        for metric in metrics {
+        // Group values by metric name once, keeping each sample's index so
+        // the leave-one-out baseline can exclude exactly this instance.
+        let mut by_name: HashMap<&str, Vec<(usize, f64)>> = HashMap::new();
+        for (i, metric) in metrics.iter().enumerate() {
             by_name
                 .entry(metric.name.as_str())
                 .or_default()
-                .push(metric.value);
+                .push((i, metric.value));
         }
 
-        for metric in metrics {
+        for (i, metric) in metrics.iter().enumerate() {
             let values = &by_name[metric.name.as_str()];
             if values.len() < MIN_SAMPLES {
                 continue; // Not enough data for a meaningful baseline
@@ -59,13 +59,19 @@ impl AnomalyDetector for ZScoreDetector {
 
             // Leave-one-out baseline: exclude the candidate point from its
             // own mean/stddev, so a large outlier cannot mask itself by
-            // inflating the baseline it is judged against.
-            let n = (values.len() - 1) as f64;
-            let sum: f64 = values.iter().sum();
-            let mean = (sum - metric.value) / n;
-            let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                - (metric.value - mean).powi(2);
-            let variance = variance / (n - 1.0);
+            // inflating the baseline it is judged against. Computed as a
+            // direct two-pass over the other samples: subtracting the
+            // candidate's squared deviation from a sum-of-squares that it
+            // dominates is catastrophic cancellation and fabricates
+            // anomalies on flat series.
+            let others: Vec<f64> = values
+                .iter()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, v)| *v)
+                .collect();
+            let mean = others.iter().sum::<f64>() / others.len() as f64;
+            let variance =
+                others.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (others.len() - 1) as f64;
             let stddev = variance.sqrt();
 
             if stddev == 0.0 || !stddev.is_finite() {
@@ -262,6 +268,46 @@ mod tests {
 
         assert!(!result.anomalies.is_empty());
         assert_eq!(result.anomalies[0].anomaly_type, AnomalyType::Spike);
+    }
+
+    #[test]
+    fn test_loo_flat_large_series_produces_no_anomaly() {
+        // Regression: an earlier sum-of-squares subtraction was numerically
+        // unstable on flat series with a large mean — the near-cancelling
+        // terms left a spurious variance and fabricated anomalies. The
+        // two-pass leave-one-out must keep this series clean.
+        let detector = ZScoreDetector::new(3.0);
+        let base = 1e8_f64;
+        let metrics = (0..8)
+            .map(|i| create_test_metric("net_bytes", base + (i as f64) * 1.0))
+            .collect::<Vec<_>>();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(detector.detect(&metrics)).unwrap();
+        assert!(
+            result.anomalies.is_empty(),
+            "flat series with a large mean must not fabricate anomalies: {:?}",
+            result.anomalies
+        );
+    }
+
+    #[test]
+    fn test_loo_detects_outlier_in_large_mean_series() {
+        // The leave-one-out property still holds at large magnitudes: a
+        // genuine spike must be flagged even when the mean is huge.
+        let detector = ZScoreDetector::new(3.0);
+        let base = 1e8_f64;
+        let metrics = (0..7)
+            .map(|i| create_test_metric("net_bytes", base + i as f64))
+            .chain(std::iter::once(create_test_metric("net_bytes", base + 1e4)))
+            .collect::<Vec<_>>();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(detector.detect(&metrics)).unwrap();
+        assert!(
+            !result.anomalies.is_empty(),
+            "genuine spike must be detected"
+        );
     }
 
     #[test]

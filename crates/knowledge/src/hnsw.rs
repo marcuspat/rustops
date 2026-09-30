@@ -70,8 +70,15 @@ impl HNSWIndexer {
             query.len()
         );
 
-        let ef_search = (limit.max(1)) * 4;
-        let neighbours = self.index.search(query, limit, ef_search);
+        // Re-indexed ids leave superseded points in the graph (HNSW has no
+        // deletion). Stale points can sit nearer the query than every live
+        // one, so over-fetch by the superseded count: among the nearest
+        // `limit + superseded` points at most `superseded` are stale, which
+        // guarantees the live entries still fit inside the result window.
+        let superseded = self.rev.len().saturating_sub(self.ids.len());
+        let fetch = limit.saturating_add(superseded).max(1);
+        let ef_search = fetch * 4;
+        let neighbours = self.index.search(query, fetch, ef_search);
 
         let mut results = Vec::with_capacity(neighbours.len());
         for n in neighbours {
@@ -90,6 +97,9 @@ impl HNSWIndexer {
                     id: id.clone(),
                     similarity,
                 });
+            }
+            if results.len() == limit {
+                break;
             }
         }
         Ok(results)
@@ -130,6 +140,28 @@ mod tests {
         assert!(results[0].similarity > 0.9);
         // Orthogonal doc2 must not pass the 0.5 similarity threshold.
         assert!(results.iter().all(|r| r.id != "doc2"));
+    }
+
+    #[test]
+    fn test_reindexed_id_still_findable() {
+        // Regression: the stale point from a re-index can be nearer the
+        // query than the live one; the over-fetch must still surface the
+        // live entry for the id.
+        let mut indexer = HNSWIndexer::new(3).unwrap();
+        indexer.index("a", &[1.0, 0.0, 0.0]).unwrap();
+        indexer.index("noise1", &[0.0, 1.0, 0.0]).unwrap();
+        indexer.index("noise2", &[0.0, 0.0, 1.0]).unwrap();
+        // Re-index "a" far from its original direction.
+        indexer.index("a", &[0.1, 0.9, 0.0]).unwrap();
+
+        // Query at "a"'s ORIGINAL direction: the stale point is the nearest
+        // neighbour and gets filtered — "a" must still be returned via its
+        // live vector.
+        let results = indexer.search(&[1.0, 0.0, 0.0], 1, 0.0).unwrap();
+        assert!(
+            results.iter().any(|r| r.id == "a"),
+            "re-indexed id must remain findable: {results:?}"
+        );
     }
 
     #[test]

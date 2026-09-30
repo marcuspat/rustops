@@ -2,7 +2,7 @@
 
 **An AIOps toolkit in Rust: statistical anomaly detection, incident correlation, service topology, and (experimental) automated remediation.**
 
-[![Rust](https://img.shields.io/badge/Rust-1.85+-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/Rust-1.87+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Main Branch](https://github.com/marcuspat/rustops/actions/workflows/main.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/main.yml)
 [![RustOps Test Suite](https://github.com/marcuspat/rustops/actions/workflows/test.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/test.yml)
@@ -32,7 +32,7 @@ RustOps is a working set of building blocks for AIOps, not a finished platform. 
 
 ## Quick start
 
-Prerequisites: Rust 1.85+.
+Prerequisites: Rust 1.87+ (uses u64::is_multiple_of, stabilized in 1.87; enforced via rust-version in Cargo.toml).
 
 ```bash
 git clone https://github.com/marcuspat/rustops.git

@@ -219,6 +219,6 @@ jobs:
         run: cargo audit
 
       - name: Check for duplicate dependencies
-        run: |
-          cargo install cargo-duplicate
-          cargo duplicate
+        run: cargo tree --duplicates --workspace
+
+

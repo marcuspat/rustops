@@ -340,7 +340,6 @@ impl ServiceGraph {
                 })?;
 
         let mut affected_services = HashSet::new();
-        let _total_paths = 0;
         let mut hops_distribution = HashMap::new();
 
         // BFS backwards (incoming edges) to find all services within max_hops
@@ -445,9 +444,10 @@ impl ServiceGraph {
     pub fn find_circular_dependencies(&self) -> Result<Vec<Vec<ServiceNode>>> {
         let mut cycles = Vec::new();
         let mut visited = HashSet::new();
-        let _recursion_stack: HashSet<NodeIndex> = HashSet::new();
 
-        // Find all strongly connected components (SCCs)
+        // Find weakly connected components, then test each for cycle
+        // edges (an edge between two members of the same component). This
+        // approximates SCC detection without a Tarjan pass.
         for node_index in self.graph.node_indices() {
             if !visited.contains(&node_index) {
                 let mut component = Vec::new();
