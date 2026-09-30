@@ -166,13 +166,12 @@ mod tests {
     #[test]
     fn test_reindexed_id_still_findable() {
         // Regression: re-indexing used to make an id unfindable when its
-        // stale vector crowded the result window. The hard guarantees to
-        // pin (ANN traversal is platform-dependent — a 4-point graph's
-        // stale-crowding behaviour is NOT deterministic across OSes, which
-        // is why this test asserts the contract, not the traversal):
-        //   1. the id's LIVE vector is always findable by searching its
-        //      own direction;
-        //   2. a stale vector is never reported for the id.
+        // stale vector crowded the result window. A limit that spans the
+        // whole index makes the assertion deterministic on every platform
+        // (hnsw_rs entry points are OS-dependent; a limit-1 query on this
+        // 4-point graph flaked on windows): fetch then covers every point,
+        // so any correct traversal returns all ids — "a" must appear via
+        // its LIVE vector, exactly once, with the live vector's similarity.
         let mut indexer = HNSWIndexer::new(3).unwrap();
         indexer.index("a", &[1.0, 0.0, 0.0]).unwrap();
         indexer.index("noise1", &[0.0, 1.0, 0.0]).unwrap();
@@ -180,32 +179,30 @@ mod tests {
         // Re-index "a" to a nearby but distinct direction.
         indexer.index("a", &[0.9, 0.1, 0.0]).unwrap();
 
-        // (1) Query at the LIVE direction: the live point is the exact
-        // nearest neighbour, so any traversal finds it; the over-fetch
-        // keeps the id in the window even when stale points crowd.
+        // Query the STALE direction with a whole-index limit: the stale
+        // point is the exact nearest and gets filtered; "a" must still be
+        // reported through its live vector.
+        let stale_dir = indexer.search(&[1.0, 0.0, 0.0], 4, 0.0).unwrap();
+        let a_hits: Vec<_> = stale_dir.iter().filter(|r| r.id == "a").collect();
+        assert_eq!(
+            a_hits.len(),
+            1,
+            "\"a\" must be reported exactly once via its live vector: {stale_dir:?}"
+        );
+        // The reported similarity must be the LIVE vector's cosine
+        // (0.9 / sqrt(0.9² + 0.1²) ≈ 0.9939), never the stale vector's 1.0.
+        let expected_live_similarity = 0.9f32 / (0.9f32 * 0.9 + 0.1f32 * 0.1).sqrt();
+        assert!(
+            (a_hits[0].similarity - expected_live_similarity).abs() < 1e-3,
+            "reported similarity must be the live vector's ({expected_live_similarity:.4}), got {}",
+            a_hits[0].similarity
+        );
+
+        // And the live direction still finds it trivially.
         let live = indexer.search(&[0.9, 0.1, 0.0], 1, 0.0).unwrap();
         assert!(
             live.iter().any(|r| r.id == "a"),
             "re-indexed id must be findable at its live direction: {live:?}"
-        );
-
-        // (2) Query at the STALE direction with a wide limit: "a" may or
-        // may not be surfaced (traversal-dependent), but no result may
-        // claim a similarity that only the stale vector has — the filter
-        // drops stale points, so any "a" entry comes from the live vector
-        // and must have its (lower) similarity.
-        let stale_dir = indexer.search(&[1.0, 0.0, 0.0], 4, 0.0).unwrap();
-        for r in &stale_dir {
-            if r.id == "a" {
-                assert!(
-                    r.similarity < 0.999,
-                    "reported 'a' must be the live vector, not the stale one: {r:?}"
-                );
-            }
-        }
-        assert!(
-            stale_dir.iter().filter(|r| r.id == "a").count() <= 1,
-            "an id must never be reported twice: {stale_dir:?}"
         );
     }
 
