@@ -512,6 +512,7 @@ impl WorkflowEngine {
             if let Some(ctx) = workflows.get_mut(&workflow_id_clone) {
                 if ctx.state == WorkflowState::Cancelled {
                     ctx.history = context.history;
+                    ctx.metadata = context.metadata;
                 } else {
                     context.state = if result.as_ref().map(|r| r.success).unwrap_or(false) {
                         WorkflowState::Completed

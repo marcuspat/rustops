@@ -126,6 +126,16 @@ cargo bench -p rustops-common                            # criterion benches for
 
 CI runs build, tests, lint, and security scanning via the workflows in `.github/workflows/`.
 
+### Known security debt
+
+Outbound TLS currently runs on the reqwest 0.11 stack (rustls 0.21 /
+rustls-webpki 0.101 / h2 0.3), which carries three ignored
+certificate-path-validation advisories plus an h2 DoS advisory (see
+`.cargo/audit.toml` for the full list with justifications, and issue #15
+for the reqwest 0.12 migration that clears them). Basic-auth credentials
+sent by the Prometheus adapter travel over that stack — treat scraped
+endpoints as trusted networks until #15 lands.
+
 ---
 
 ## License

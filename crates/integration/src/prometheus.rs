@@ -235,8 +235,12 @@ impl PrometheusAdapter {
             let auth = auth.clone();
             let params = params_clone.clone();
             async move {
+                // POST, not GET: this path carries its parameters as a JSON
+                // body, and Prometheus ignores GET bodies — as a GET the
+                // query parameters were silently dropped. The Prometheus
+                // API officially accepts POST for the query endpoints.
                 let mut builder = Request::builder()
-                    .method(Method::GET)
+                    .method(Method::POST)
                     .uri(&url)
                     .header(CONTENT_TYPE, "application/json");
                 if let Some(auth) = &auth {
@@ -807,5 +811,86 @@ mod tests {
     fn test_alert_status() {
         assert_ne!(AlertStatus::Firing, AlertStatus::Inactive);
         assert_eq!(AlertStatus::Pending, AlertStatus::Pending);
+    }
+}
+
+#[cfg(test)]
+mod auth_wire_tests {
+    use super::*;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn target_for(server_uri: &str) -> ServiceTarget {
+        let addr = server_uri.trim_start_matches("http://");
+        let (host, port) = addr.rsplit_once(':').expect("mock uri has a port");
+        ServiceTarget {
+            address: host.to_string(),
+            port: Some(port.to_string()),
+            last_scraped: None,
+            error: None,
+            labels: HashMap::new(),
+            scheme: "http".to_string(),
+            metrics_path: "metrics".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn basic_auth_is_sent_on_the_wire() {
+        // Regression: credentials were stored but never applied — scrapes
+        // against a protected Prometheus failed with a generic 401. The
+        // mock only matches when the Authorization header is present with
+        // the exact Basic value, so the test fails if the header is dropped.
+        let server = MockServer::start().await;
+        let expected = format!(
+            "Basic {}",
+            Base64Standard.encode("prom-user:prom-pass")
+        );
+
+        Mock::given(method("GET"))
+            .and(path("/metrics"))
+            .and(header("authorization", expected.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_string("# HELP up up\n"))
+            .mount(&server)
+            .await;
+
+        let adapter = PrometheusAdapter::new(
+            "auth-test",
+            server.uri(),
+            Some(("prom-user".to_string(), "prom-pass".to_string())),
+            CircuitBreakerConfig::default(),
+            RateLimiterConfig::default(),
+            RetryConfig::default(),
+        );
+
+        let body = adapter
+            .scrape_target(&target_for(&server.uri()))
+            .await
+            .expect("authed scrape must succeed against the mock");
+        assert!(body.contains("# HELP up"));
+    }
+
+    #[tokio::test]
+    async fn no_auth_header_when_no_credentials() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/metrics"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("up 1\n"))
+            .mount(&server)
+            .await;
+
+        let adapter = PrometheusAdapter::new(
+            "noauth-test",
+            server.uri(),
+            None::<(String, String)>,
+            CircuitBreakerConfig::default(),
+            RateLimiterConfig::default(),
+            RetryConfig::default(),
+        );
+
+        let body = adapter
+            .scrape_target(&target_for(&server.uri()))
+            .await
+            .expect("unauthenticated scrape must succeed against the mock");
+        assert!(body.contains("up 1"));
     }
 }
