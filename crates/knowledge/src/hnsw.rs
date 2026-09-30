@@ -87,7 +87,7 @@ impl HNSWIndexer {
         // the live entries fit in the window, not guaranteed: the HNSW
         // traversal is approximate and may return fewer points than asked.
         let superseded = self.rev.len().saturating_sub(self.ids.len());
-        let fetch = limit.saturating_add(superseded).max(1);
+        let fetch = fetch_size(limit, superseded);
         let ef_search = fetch * 4;
         let neighbours = self.index.search(query, fetch, ef_search);
         let raw: Vec<(usize, f32)> = neighbours
@@ -106,6 +106,14 @@ impl HNSWIndexer {
             dimensions: self.dimensions,
         }
     }
+}
+
+/// How many points to ask the ANN for: the caller's limit plus one slot
+/// per superseded (re-indexed) point, so stale points crowding the front
+/// of the result window cannot evict live entries. Pure — unit-tested
+/// directly; this sizing is the load-bearing half of the re-index fix.
+fn fetch_size(limit: usize, superseded: usize) -> usize {
+    limit.saturating_add(superseded).max(1)
 }
 
 /// Filter raw ANN neighbour hits down to live results.
@@ -292,5 +300,39 @@ mod tests {
         assert_eq!(stats.num_elements, 2);
         assert_eq!(stats.live_elements, 2);
         assert_eq!(stats.dimensions, 2);
+    }
+}
+
+#[cfg(test)]
+mod fetch_and_filter_tests {
+    use super::*;
+
+    #[test]
+    fn fetch_size_over_fetches_by_superseded_and_floors_at_one() {
+        // The load-bearing sizing of the re-index fix: one extra slot per
+        // superseded point, never zero.
+        assert_eq!(fetch_size(1, 0), 1);
+        assert_eq!(fetch_size(1, 3), 4, "three re-indexes widen the window by three");
+        assert_eq!(fetch_size(5, 2), 7);
+        assert_eq!(fetch_size(0, 0), 1, "a zero limit still fetches one point");
+        assert_eq!(
+            fetch_size(usize::MAX, 1),
+            usize::MAX,
+            "saturating, no overflow"
+        );
+    }
+
+    #[test]
+    fn live_results_drops_out_of_range_point_ids() {
+        // The ANN returning a d_id beyond rev (a real inconsistency, e.g.
+        // after future index compaction) must be swallowed per-hit, not
+        // panic and not abort the whole result set.
+        let rev: Vec<String> = ["x"].map(String::from).to_vec();
+        let mut ids = HashMap::new();
+        ids.insert("x".to_string(), 0usize);
+
+        let results = live_results(&[(9usize, 0.0f32), (0, 0.2)], &rev, &ids, 2, 0.0);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "x", "the valid hit survives the bad one");
     }
 }
