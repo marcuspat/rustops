@@ -16,6 +16,7 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 reqwest = { workspace = true }
+form_urlencoded = "1"
 hyper = { workspace = true, features = ["server", "http1", "tcp"] }
 chrono = { workspace = true }
 uuid = { workspace = true }

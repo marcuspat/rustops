@@ -235,21 +235,21 @@ impl PrometheusAdapter {
             let auth = auth.clone();
             let params = params_clone.clone();
             async move {
-                // POST, not GET: this path carries its parameters as a JSON
-                // body, and Prometheus ignores GET bodies — as a GET the
-                // query parameters were silently dropped. The Prometheus
-                // API officially accepts POST for the query endpoints.
+                // POST with an application/x-www-form-urlencoded body — the
+                // form Prometheus accepts. (A GET body is ignored and a JSON
+                // POST body is rejected, so in both earlier variants the
+                // query parameters were silently dropped.)
+                let form_body = form_urlencoded::Serializer::new(String::new())
+                    .extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str())))
+                    .finish();
                 let mut builder = Request::builder()
                     .method(Method::POST)
                     .uri(&url)
-                    .header(CONTENT_TYPE, "application/json");
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded");
                 if let Some(auth) = &auth {
                     builder = builder.header(AUTHORIZATION, auth);
                 }
-                let request = builder.body(Body::from(
-                    serde_json::to_vec(&params)
-                        .map_err(|e| IntegrationError::Unknown(e.to_string()))?,
-                ))?;
+                let request = builder.body(Body::from(form_body))?;
 
                 let response = client.request(request).await?;
 
@@ -892,5 +892,53 @@ mod auth_wire_tests {
             .await
             .expect("unauthenticated scrape must succeed against the mock");
         assert!(body.contains("up 1"));
+    }
+}
+
+#[cfg(test)]
+mod query_wire_tests {
+    use super::*;
+    use wiremock::matchers::{body_string_contains, header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn query_params_travel_as_a_form_post_body() {
+        // Regression: this path sent its parameters as a GET body (ignored
+        // by Prometheus), then as a JSON POST body (rejected) — in both
+        // variants the query never reached the server. The mock only
+        // matches a POST with a urlencoded body containing the query.
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/query"))
+            .and(header(
+                "content-type",
+                "application/x-www-form-urlencoded",
+            ))
+            .and(body_string_contains("query=up"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(
+                    r#"{"status":"success","data":{"result_type":"vector","result":[]}}"#,
+                ),
+            )
+            .mount(&server)
+            .await;
+
+        let adapter = PrometheusAdapter::new(
+            "query-test",
+            server.uri(),
+            None::<(&str, &str)>,
+            CircuitBreakerConfig::default(),
+            RateLimiterConfig::default(),
+            RetryConfig::default(),
+        );
+
+        let now = Utc::now();
+        let response = adapter
+            .query_range("up", now - chrono::Duration::minutes(5), now, "15")
+            .await
+            .expect("form-encoded query must succeed against the mock");
+        assert_eq!(response.status, "success");
+        assert_eq!(response.data.result_type, "vector");
     }
 }
