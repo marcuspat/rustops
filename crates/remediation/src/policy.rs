@@ -3,10 +3,7 @@
 //! The policy engine evaluates proposed remediation actions against
 //! security policies, risk levels, and approval requirements.
 
-use crate::{
-    error::{Error, Result},
-    IncidentContext, IncidentSeverity,
-};
+use crate::{error::Result, IncidentContext, IncidentSeverity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -57,7 +54,10 @@ impl ActionType {
 
     /// Check if action requires approval
     pub fn requires_approval(&self) -> bool {
-        !matches!(self, Self::RestartService | Self::ScaleService | Self::BackupRestore)
+        !matches!(
+            self,
+            Self::RestartService | Self::ScaleService | Self::BackupRestore
+        )
     }
 }
 
@@ -100,8 +100,8 @@ impl RiskLevel {
     pub fn approval_timeout_secs(&self) -> u64 {
         match self {
             Self::Low => 0,
-            Self::Medium => 300,  // 5 minutes
-            Self::High => 600,    // 10 minutes
+            Self::Medium => 300,   // 5 minutes
+            Self::High => 600,     // 10 minutes
             Self::Critical => 900, // 15 minutes
         }
     }
@@ -224,7 +224,7 @@ impl Constraint {
     /// Check if constraint is satisfied
     pub async fn check(&self, _context: &IncidentContext) -> Result<bool> {
         match self {
-            Self::Namespace { allowed } => {
+            Self::Namespace { allowed: _ } => {
                 // In production, this would check against actual namespace
                 Ok(true) // Placeholder
             }
@@ -271,7 +271,7 @@ pub enum BlastRadiusLimit {
 
 impl BlastRadiusLimit {
     /// Check if action is within blast radius
-    pub fn check(&self, context: &IncidentContext) -> bool {
+    pub fn check(&self, _context: &IncidentContext) -> bool {
         match self {
             Self::Namespace => true, // Always within namespace
             Self::Cluster => true,
@@ -326,7 +326,10 @@ impl PolicyEngine {
             ActionType::BackupRestore,
             ActionType::NetworkChange,
         ] {
-            policies.insert(action_type.clone(), RemediationPolicy::for_action(action_type));
+            policies.insert(
+                action_type.clone(),
+                RemediationPolicy::for_action(action_type),
+            );
         }
 
         Self {
@@ -408,7 +411,11 @@ impl PolicyEngine {
     }
 
     /// Assess risk level for action
-    async fn assess_risk(&self, action: &ActionType, context: &IncidentContext) -> Result<RiskLevel> {
+    async fn assess_risk(
+        &self,
+        action: &ActionType,
+        context: &IncidentContext,
+    ) -> Result<RiskLevel> {
         let base_risk = action.default_risk_level();
 
         // Adjust risk based on incident severity

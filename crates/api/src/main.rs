@@ -1,9 +1,4 @@
-use axum::{
-    http::StatusCode,
-    response::Json,
-    routing::get,
-    Router,
-};
+use axum::{http::StatusCode, response::Json, routing::get, Router};
 use serde::Serialize;
 use std::net::SocketAddr;
 use tokio::signal;
@@ -45,6 +40,9 @@ async fn metrics() -> Result<Json<MetricsResponse>, ApiError> {
 /// API error type
 #[derive(Debug)]
 enum ApiError {
+    /// Wired into `IntoResponse` for future handlers; the current
+    /// placeholder endpoints never fail, so nothing constructs it yet.
+    #[allow(dead_code)]
     Internal(String),
 }
 
@@ -72,13 +70,12 @@ fn create_router() -> Router {
 
 /// API v1 router (placeholder for future endpoints)
 fn v1_router() -> Router {
-    Router::new()
-        .route("/", get(|| async { "RustOps API v1" }))
-        // Future endpoints will be added here:
-        // .route("/incidents", get(incidents_list))
-        // .route("/incidents/:id", get(incident_detail))
-        // .route("/anomalies", get(anomalies_list))
-        // .route("/topology", get(topology_status))
+    Router::new().route("/", get(|| async { "RustOps API v1" }))
+    // Future endpoints will be added here:
+    // .route("/incidents", get(incidents_list))
+    // .route("/incidents/:id", get(incident_detail))
+    // .route("/anomalies", get(anomalies_list))
+    // .route("/topology", get(topology_status))
 }
 
 /// Graceful shutdown handler

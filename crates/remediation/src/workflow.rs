@@ -3,8 +3,8 @@
 //! Temporal workflow definitions for automated remediation actions.
 
 use crate::{
+    activity::{ActivityExecutor, ActivityInput},
     error::{Error, Result},
-    activity::{ActivityExecutor, ActivityInput, ActivityOutput},
     IncidentContext, RemediationConfig, RemediationResult,
 };
 use serde::{Deserialize, Serialize};
@@ -129,9 +129,9 @@ impl RestartServiceWorkflow {
     }
 }
 
-#[async_trait::async_trait]
-impl RemediationWorkflow for RestartServiceWorkflow {
-    async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+impl RestartServiceWorkflow {
+    /// The workflow body; `execute` bounds it with the configured timeout.
+    async fn run(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
         let workflow_id = context.workflow_id.clone();
         let incident_id = context.incident.incident_id.clone();
 
@@ -192,7 +192,9 @@ impl RemediationWorkflow for RestartServiceWorkflow {
                 incident_id: incident_id.clone(),
                 action: crate::ActionType::RestartService,
                 success: false,
-                message: restart_output.error.unwrap_or_else(|| "Restart failed".to_string()),
+                message: restart_output
+                    .error
+                    .unwrap_or_else(|| "Restart failed".to_string()),
                 completed_at: chrono::Utc::now(),
                 rolled_back: false,
                 details: restart_output.data,
@@ -240,6 +242,39 @@ impl RemediationWorkflow for RestartServiceWorkflow {
             })),
         })
     }
+}
+
+#[async_trait::async_trait]
+impl RemediationWorkflow for RestartServiceWorkflow {
+    async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+        let timeout = std::time::Duration::from_secs(self.config.default_workflow_timeout_secs);
+        let workflow_id = context.workflow_id.clone();
+        let incident_id = context.incident.incident_id.clone();
+        // timeout_secs == 0 means unbounded: tokio::time::timeout with a
+        // zero duration fires on the first poll, which would silently fail
+        // every workflow for an operator who set 0 expecting "no timeout".
+        let outcome = if self.config.default_workflow_timeout_secs == 0 {
+            Ok(self.run(context).await)
+        } else {
+            tokio::time::timeout(timeout, self.run(context)).await
+        };
+        match outcome {
+            Ok(result) => result,
+            Err(_) => {
+                context.state = WorkflowState::Failed;
+                Ok(RemediationResult {
+                    workflow_id,
+                    incident_id,
+                    action: crate::ActionType::RestartService,
+                    success: false,
+                    message: format!("Workflow timed out after {}s", timeout.as_secs()),
+                    completed_at: chrono::Utc::now(),
+                    rolled_back: false,
+                    details: None,
+                })
+            }
+        }
+    }
 
     fn name(&self) -> &str {
         "restart_service"
@@ -267,9 +302,9 @@ impl ScaleServiceWorkflow {
     }
 }
 
-#[async_trait::async_trait]
-impl RemediationWorkflow for ScaleServiceWorkflow {
-    async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+impl ScaleServiceWorkflow {
+    /// The workflow body; `execute` bounds it with the configured timeout.
+    async fn run(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
         let workflow_id = context.workflow_id.clone();
         let incident_id = context.incident.incident_id.clone();
 
@@ -310,7 +345,9 @@ impl RemediationWorkflow for ScaleServiceWorkflow {
                 incident_id,
                 action: crate::ActionType::ScaleService,
                 success: false,
-                message: scale_output.error.unwrap_or_else(|| "Scale failed".to_string()),
+                message: scale_output
+                    .error
+                    .unwrap_or_else(|| "Scale failed".to_string()),
                 completed_at: chrono::Utc::now(),
                 rolled_back: false,
                 details: scale_output.data,
@@ -339,6 +376,39 @@ impl RemediationWorkflow for ScaleServiceWorkflow {
             })),
         })
     }
+}
+
+#[async_trait::async_trait]
+impl RemediationWorkflow for ScaleServiceWorkflow {
+    async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+        let timeout = std::time::Duration::from_secs(self.config.default_workflow_timeout_secs);
+        let workflow_id = context.workflow_id.clone();
+        let incident_id = context.incident.incident_id.clone();
+        // timeout_secs == 0 means unbounded: tokio::time::timeout with a
+        // zero duration fires on the first poll, which would silently fail
+        // every workflow for an operator who set 0 expecting "no timeout".
+        let outcome = if self.config.default_workflow_timeout_secs == 0 {
+            Ok(self.run(context).await)
+        } else {
+            tokio::time::timeout(timeout, self.run(context)).await
+        };
+        match outcome {
+            Ok(result) => result,
+            Err(_) => {
+                context.state = WorkflowState::Failed;
+                Ok(RemediationResult {
+                    workflow_id,
+                    incident_id,
+                    action: crate::ActionType::ScaleService,
+                    success: false,
+                    message: format!("Workflow timed out after {}s", timeout.as_secs()),
+                    completed_at: chrono::Utc::now(),
+                    rolled_back: false,
+                    details: None,
+                })
+            }
+        }
+    }
 
     fn name(&self) -> &str {
         "scale_service"
@@ -358,6 +428,9 @@ pub struct WorkflowEngine {
     executor: Arc<dyn ActivityExecutor>,
     config: RemediationConfig,
     active_workflows: Arc<RwLock<std::collections::HashMap<String, WorkflowContext>>>,
+    /// Insertion order of workflow ids, for FIFO eviction of terminal
+    /// contexts past `config.workflow_history_retention`.
+    workflow_order: Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
 }
 
 impl WorkflowEngine {
@@ -367,6 +440,7 @@ impl WorkflowEngine {
             executor,
             config,
             active_workflows: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            workflow_order: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
         }
     }
 
@@ -395,26 +469,82 @@ impl WorkflowEngine {
             })),
         });
 
-        // Store workflow context
+        // Store workflow context, enforcing the configured concurrency limit.
         let mut workflows = self.active_workflows.write().await;
+        let in_flight = workflows
+            .values()
+            .filter(|c| matches!(c.state, WorkflowState::Pending | WorkflowState::Running))
+            .count();
+        if in_flight >= self.config.max_concurrent_actions {
+            return Err(Error::Workflow(format!(
+                "concurrency limit reached: {} workflows already in flight (max {})",
+                in_flight, self.config.max_concurrent_actions
+            )));
+        }
         workflows.insert(workflow_id.clone(), context.clone());
+        self.workflow_order
+            .lock()
+            .expect("workflow_order lock poisoned")
+            .push_back(workflow_id.clone());
 
         // Execute workflow (in production, this would be async)
-        let executor = self.executor.clone();
+        let _executor = self.executor.clone();
         let workflows_ref = self.active_workflows.clone();
         let workflow_id_clone = workflow_id.clone();
+        let order_ref = self.workflow_order.clone();
+        let retention = self.config.workflow_history_retention;
 
         tokio::spawn(async move {
             let result = workflow.execute(&mut context).await;
 
-            // Update workflow state
+            // Write the whole mutated context back into the map — state,
+            // history and metadata — not just the terminal state. Note the
+            // write-back lands at termination: during the run the stored
+            // entry still reads Pending, so
+            // get_workflow_status reports the run only once execute()
+            // timed out (its RemediationResult carries success=false but the
+            // local context mutations were the only record of the steps).
+            // A context cancelled while running keeps state=Cancelled but
+            // still receives the run's history: for a remediation engine,
+            // what a cancelled workflow actually did to the target system
+            // is the record that matters most.
             let mut workflows = workflows_ref.write().await;
             if let Some(ctx) = workflows.get_mut(&workflow_id_clone) {
-                ctx.state = if result.as_ref().map(|r| r.success).unwrap_or(false) {
-                    WorkflowState::Completed
+                if ctx.state == WorkflowState::Cancelled {
+                    ctx.history = context.history;
+                    ctx.metadata = context.metadata;
                 } else {
-                    WorkflowState::Failed
-                };
+                    context.state = if result.as_ref().map(|r| r.success).unwrap_or(false) {
+                        WorkflowState::Completed
+                    } else {
+                        WorkflowState::Failed
+                    };
+                    *ctx = context;
+                }
+            }
+
+            // Evict oldest terminal contexts past the retention cap so the
+            // map cannot grow without bound over the process lifetime.
+            // Only a prefix of terminal entries is evicted; if the oldest
+            // is still in flight, eviction waits for the next completion.
+            if workflows.len() > retention {
+                let mut order = order_ref.lock().expect("workflow_order lock poisoned");
+                while workflows.len() > retention {
+                    let Some(oldest) = order.front() else { break };
+                    let oldest = oldest.clone();
+                    let terminal = workflows
+                        .get(&oldest)
+                        .map(|c| {
+                            !matches!(c.state, WorkflowState::Pending | WorkflowState::Running)
+                        })
+                        .unwrap_or(true);
+                    if terminal {
+                        order.pop_front();
+                        workflows.remove(&oldest);
+                    } else {
+                        break;
+                    }
+                }
             }
 
             tracing::info!(
@@ -478,12 +608,12 @@ impl WorkflowEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::activity::{CompositeActivityExecutor, KubernetesActivityExecutor};
+    use crate::activity::{CompositeActivityExecutor, SimulatedActivityExecutor};
 
     #[tokio::test]
     async fn test_restart_workflow() {
         let composite = CompositeActivityExecutor::new()
-            .add_executor(Box::new(KubernetesActivityExecutor::new().unwrap()));
+            .add_executor(Box::new(SimulatedActivityExecutor::new()));
 
         let executor: Arc<dyn ActivityExecutor> = Arc::new(composite);
         let config = RemediationConfig::default();
@@ -516,7 +646,7 @@ mod tests {
     #[tokio::test]
     async fn test_workflow_engine() {
         let composite = CompositeActivityExecutor::new()
-            .add_executor(Box::new(KubernetesActivityExecutor::new().unwrap()));
+            .add_executor(Box::new(SimulatedActivityExecutor::new()));
 
         let executor: Arc<dyn ActivityExecutor> = Arc::new(composite);
         let config = RemediationConfig::default();
@@ -542,5 +672,222 @@ mod tests {
         let status = engine.get_workflow_status(&workflow_id).await;
 
         assert!(status.is_some());
+    }
+}
+
+#[cfg(test)]
+mod gate_round3_tests {
+    use super::*;
+    use crate::activity::{ActivityOutput, SimulatedActivityExecutor};
+    use std::time::Duration;
+
+    fn test_incident() -> IncidentContext {
+        IncidentContext {
+            incident_id: "gate-1".to_string(),
+            severity: crate::IncidentSeverity::Medium,
+            service_name: "svc".to_string(),
+            namespace: "default".to_string(),
+            cluster: "c".to_string(),
+            description: "test".to_string(),
+            started_at: chrono::Utc::now(),
+            metadata: serde_json::json!({}),
+        }
+    }
+
+    fn test_context() -> WorkflowContext {
+        WorkflowContext {
+            workflow_id: "wf-gate".to_string(),
+            incident: test_incident(),
+            state: WorkflowState::Pending,
+            history: Vec::new(),
+            metadata: serde_json::json!({}),
+        }
+    }
+
+    /// Executor whose activities sleep, so the workflow can be driven past
+    /// a short timeout deterministically (1s timeout vs 30s sleeps).
+    struct SlowExecutor;
+
+    #[async_trait::async_trait]
+    impl ActivityExecutor for SlowExecutor {
+        async fn execute(&self, _input: ActivityInput) -> Result<ActivityOutput> {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Ok(ActivityOutput {
+                success: true,
+                data: None,
+                error: None,
+                execution_time_ms: 30_000,
+            })
+        }
+
+        fn activity_type(&self) -> &str {
+            "slow"
+        }
+
+        fn supports(&self, activity_type: &str) -> bool {
+            activity_type == "slow"
+        }
+    }
+
+    #[tokio::test]
+    async fn timeout_fails_result_and_marks_context_failed() {
+        let executor: Arc<dyn ActivityExecutor> = Arc::new(SlowExecutor);
+        let config = RemediationConfig {
+            default_workflow_timeout_secs: 1,
+            ..Default::default()
+        };
+        let workflow = RestartServiceWorkflow::new(executor, config);
+
+        let mut context = test_context();
+        let result = workflow.execute(&mut context).await.unwrap();
+
+        assert!(!result.success);
+        assert!(
+            result.message.contains("timed out"),
+            "message should say it timed out: {}",
+            result.message
+        );
+        assert!(matches!(context.state, WorkflowState::Failed));
+    }
+
+    #[tokio::test]
+    async fn timeout_zero_means_unbounded_not_instant_failure() {
+        // Regression: timeout(0s) fires on the first poll, so a config of 0
+        // used to fail every workflow instantly instead of meaning "no
+        // timeout". With the fast simulated executor an unbounded run
+        // completes successfully.
+        let executor: Arc<dyn ActivityExecutor> = Arc::new(SimulatedActivityExecutor::new());
+        let config = RemediationConfig {
+            default_workflow_timeout_secs: 0,
+            ..Default::default()
+        };
+        let workflow = RestartServiceWorkflow::new(executor, config);
+
+        let mut context = test_context();
+        let result = workflow.execute(&mut context).await.unwrap();
+        assert!(
+            result.success,
+            "timeout_secs=0 must mean unbounded, not instant timeout: {}",
+            result.message
+        );
+    }
+
+    /// Workflow whose execution blocks long enough to hold a concurrency
+    /// slot while the test starts a second workflow.
+    struct BlockingWorkflow {
+        incident_id: String,
+    }
+
+    #[async_trait::async_trait]
+    impl RemediationWorkflow for BlockingWorkflow {
+        async fn execute(&self, context: &mut WorkflowContext) -> Result<RemediationResult> {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            context.history.push(WorkflowEvent {
+                timestamp: chrono::Utc::now(),
+                event_type: "step_complete".to_string(),
+                message: "blocked step done".to_string(),
+                data: None,
+            });
+            Ok(RemediationResult {
+                workflow_id: context.workflow_id.clone(),
+                incident_id: self.incident_id.clone(),
+                action: crate::ActionType::RestartService,
+                success: true,
+                message: "done".to_string(),
+                completed_at: chrono::Utc::now(),
+                rolled_back: false,
+                details: None,
+            })
+        }
+
+        fn name(&self) -> &str {
+            "blocking_test_workflow"
+        }
+
+        fn steps(&self) -> Vec<String> {
+            vec!["block".to_string()]
+        }
+    }
+
+    #[tokio::test]
+    async fn engine_enforces_and_releases_concurrency_limit() {
+        let executor: Arc<dyn ActivityExecutor> = Arc::new(SimulatedActivityExecutor::new());
+        let config = RemediationConfig {
+            max_concurrent_actions: 1,
+            ..Default::default()
+        };
+        let engine = WorkflowEngine::new(executor, config);
+
+        let _first = engine
+            .start_workflow(
+                test_incident(),
+                Box::new(BlockingWorkflow {
+                    incident_id: "gate-1".to_string(),
+                }),
+            )
+            .await
+            .unwrap();
+
+        // While the first is in flight, a second start must be rejected.
+        let second = engine
+            .start_workflow(
+                test_incident(),
+                Box::new(BlockingWorkflow {
+                    incident_id: "gate-1".to_string(),
+                }),
+            )
+            .await;
+        assert!(
+            second.is_err(),
+            "concurrency limit of 1 must reject a second in-flight workflow"
+        );
+
+        // After it terminates the slot frees.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let third = engine
+            .start_workflow(
+                test_incident(),
+                Box::new(BlockingWorkflow {
+                    incident_id: "gate-1".to_string(),
+                }),
+            )
+            .await;
+        assert!(third.is_ok(), "slot must free after termination");
+    }
+
+    #[tokio::test]
+    async fn cancelled_workflow_keeps_its_run_history() {
+        // Regression: the write-back used to skip cancelled contexts
+        // entirely, discarding the history of what actually ran.
+        let executor: Arc<dyn ActivityExecutor> = Arc::new(SimulatedActivityExecutor::new());
+        let config = RemediationConfig::default();
+        let engine = WorkflowEngine::new(executor, config);
+
+        let workflow_id = engine
+            .start_workflow(
+                test_incident(),
+                Box::new(BlockingWorkflow {
+                    incident_id: "gate-1".to_string(),
+                }),
+            )
+            .await
+            .unwrap();
+
+        // Cancel while the blocking workflow is mid-run.
+        engine.cancel_workflow(&workflow_id).await.unwrap();
+
+        // Wait for the run to finish and the write-back to happen.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+
+        let status = engine
+            .get_workflow_status(&workflow_id)
+            .await
+            .expect("context must remain queryable");
+        assert_eq!(status.state, WorkflowState::Cancelled);
+        assert!(
+            status.total_steps > 1,
+            "cancelled workflow must keep its run history (steps: {})",
+            status.total_steps
+        );
     }
 }

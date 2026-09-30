@@ -15,6 +15,7 @@ use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
 /// Domain event for topology changes
+#[allow(clippy::large_enum_variant)] // layout change out of scope
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TopologyEvent {
     /// Service was added to topology
@@ -433,7 +434,7 @@ impl TopologyEventStore for InMemoryEventStore {
                 message: "Failed to acquire read lock for events".to_string(),
             })?;
         let total = events.len();
-        let start = if count >= total { 0 } else { total - count };
+        let start = total.saturating_sub(count);
 
         Ok(events[start..].to_vec())
     }

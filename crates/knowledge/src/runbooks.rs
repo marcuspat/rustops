@@ -136,7 +136,7 @@ impl RunbookStorage for InMemoryRunbookStorage {
             results.retain(|r| r.severity == *severity);
         }
         if let Some(min_rate) = query.min_success_rate {
-            results.retain(|r| r.success_rate.map_or(false, |sr| sr >= min_rate));
+            results.retain(|r| r.success_rate.is_some_and(|sr| sr >= min_rate));
         }
         if !query.tags.is_empty() {
             results.retain(|r| query.tags.iter().all(|t| r.tags.contains(t)));

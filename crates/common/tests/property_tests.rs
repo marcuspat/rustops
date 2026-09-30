@@ -3,7 +3,7 @@
 use proptest::prelude::*;
 use rustops_common::{config::Config, telemetry::Metric, MetricId, MetricType, ServiceId};
 
-/// Property: Metric value should always be finite when created.
+// Property: Metric value should always be finite when created.
 proptest! {
     #[test]
     fn test_metric_value_always_finite(value in proptest::num::f64::ANY) {
@@ -27,7 +27,7 @@ proptest! {
     }
 }
 
-/// Property: Metric serialization roundtrip preserves data.
+// Property: Metric serialization roundtrip preserves data.
 proptest! {
     #[test]
     fn test_metric_serialization_roundtrip(
@@ -73,7 +73,7 @@ proptest! {
     }
 }
 
-/// Property: Config default has reasonable values.
+// Property: Config default has reasonable values.
 #[test]
 fn test_config_default_values() {
     let config = Config::default();
@@ -83,7 +83,7 @@ fn test_config_default_values() {
     assert!(!config.pipeline.kafka_brokers.is_empty());
 }
 
-/// Property: Multiple metrics can have the same name but different values.
+// Property: Multiple metrics can have the same name but different values.
 proptest! {
     #[test]
     fn test_metrics_with_same_name_different_values(
@@ -121,7 +121,7 @@ proptest! {
     }
 }
 
-/// Property: Labels can store arbitrary string key-value pairs.
+// Property: Labels can store arbitrary string key-value pairs.
 proptest! {
     #[test]
     fn test_labels_arbitrary_strings(
@@ -145,7 +145,7 @@ proptest! {
     }
 }
 
-/// Property: Timestamps should be in reasonable ranges.
+// Property: Timestamps should be in reasonable ranges.
 proptest! {
     #[test]
     fn test_timestamps_in_reasonable_range(
@@ -171,7 +171,7 @@ proptest! {
     }
 }
 
-/// Property: Metric aggregation invariants.
+// Property: Metric aggregation invariants.
 proptest! {
     #[test]
     fn test_metric_aggregation_invariants(
@@ -199,7 +199,7 @@ proptest! {
     }
 }
 
-/// Property: Config serialization preserves structure.
+// Property: Config serialization preserves structure.
 proptest! {
     #[test]
     fn test_config_serialization_roundtrip(

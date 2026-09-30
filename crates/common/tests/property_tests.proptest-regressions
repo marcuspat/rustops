@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 56c6f383c350ba8e402ffc57c8bfbaabf95fe0dbe9e0c1e1612170ba15d282f2 # shrinks to name = "a", value = -91524.91703126143, secs = 0, metric_type = Gauge, label_val = ""

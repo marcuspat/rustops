@@ -3,11 +3,10 @@
 //! Removes duplicate alerts using fingerprinting and time windows.
 
 use chrono::{DateTime, Duration, Utc};
-use rustops_common::{AlertId, ServiceId, Severity};
+use rustops_common::{AlertId, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::time::Duration as StdDuration;
 
 /// Alert fingerprint - unique identifier for alert type
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -37,16 +36,27 @@ impl Fingerprint {
 /// Normalized alert for deduplication
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NormalizedAlert {
+    /// Pub.
     pub alert_id: AlertId,
+    /// Pub.
     pub timestamp: DateTime<Utc>,
+    /// Pub.
     pub service: String,
+    /// Pub.
     pub alert_type: String,
+    /// Pub.
     pub severity: Severity,
+    /// Pub.
     pub title: String,
+    /// Pub.
     pub resource: Option<String>,
+    /// Pub.
     pub metric_name: Option<String>,
+    /// Pub.
     pub metric_value: Option<f64>,
+    /// Pub.
     pub threshold: Option<f64>,
+    /// Pub.
     pub labels: HashMap<String, String>,
 }
 
@@ -60,6 +70,13 @@ pub struct AlertDeduplicator {
     fingerprinter: Fingerprinter,
 }
 
+impl Default for AlertDeduplicator {
+    /// Deduplicator with a 5-minute window.
+    fn default() -> Self {
+        Self::new(Duration::minutes(5))
+    }
+}
+
 impl AlertDeduplicator {
     /// Create a new deduplicator
     pub fn new(window: Duration) -> Self {
@@ -68,11 +85,6 @@ impl AlertDeduplicator {
             seen: HashMap::new(),
             fingerprinter: Fingerprinter,
         }
-    }
-
-    /// Create with default 5-minute window
-    pub fn default() -> Self {
-        Self::new(Duration::minutes(5))
     }
 
     /// Deduplicate alerts, returning only unique alerts

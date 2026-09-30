@@ -3,10 +3,12 @@
 // Implements ServiceNow incident management and CMDB sync
 
 use async_trait::async_trait;
+use base64::engine::general_purpose::STANDARD as Base64Standard;
+use base64::Engine as _;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use crate::adapter::{
     BaseAdapter, CMDBSyncResult, ITSMNotifier, Incident, IncidentSeverity, IncidentStatus,
@@ -78,7 +80,7 @@ impl ServiceNowAdapter {
             (&self.config.username, &self.config.password)
         {
             let auth = format!("{}:{}", username, password);
-            let encoded = base64::encode(auth);
+            let encoded = Base64Standard.encode(auth);
             headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
         }
 

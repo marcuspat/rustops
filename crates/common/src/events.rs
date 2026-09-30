@@ -63,70 +63,105 @@ pub enum EventType {
 pub enum EventPayload {
     /// Anomaly was detected
     AnomalyDetected {
+        /// ID of the detected anomaly
         anomaly_id: AnomalyId,
+        /// ID of the metric the anomaly was found in
         metric_id: MetricId,
+        /// Normalised anomaly score
         score: f64,
+        /// Detector confidence in `[0, 1]`
         confidence: f64,
+        /// Human-readable explanation of why this was flagged
         explanation: String,
     },
     /// Alert was created
     AlertCreated {
+        /// ID of the new alert
         alert_id: AlertId,
+        /// Alert title
         title: String,
+        /// Alert severity
         severity: Severity,
+        /// Service the alert is attached to
         service_id: ServiceId,
     },
     /// Alert was updated
     AlertUpdated {
+        /// ID of the updated alert
         alert_id: AlertId,
+        /// Field names that changed
         changes: Vec<String>,
     },
     /// Alert was resolved
     AlertResolved {
+        /// ID of the resolved alert
         alert_id: AlertId,
+        /// How the alert was resolved
         resolution: String,
     },
     /// Incident was created
     IncidentCreated {
+        /// ID of the new incident
         incident_id: IncidentId,
+        /// Incident title
         title: String,
+        /// Incident severity
         severity: Severity,
+        /// Alerts that were correlated into this incident
         alert_ids: Vec<AlertId>,
     },
     /// Incident was updated
     IncidentUpdated {
+        /// ID of the updated incident
         incident_id: IncidentId,
+        /// Field names that changed
         changes: Vec<String>,
     },
     /// Incident was resolved
     IncidentResolved {
+        /// ID of the resolved incident
         incident_id: IncidentId,
+        /// How the incident was resolved
         resolution: String,
+        /// Mean time to repair, in seconds
         mttr_seconds: u64,
     },
     /// Service dependency discovered
     DependencyDiscovered {
+        /// Service that depends on the other
         from_service: ServiceId,
+        /// Service being depended on
         to_service: ServiceId,
+        /// Kind of dependency (e.g. HTTP, database)
         dependency_type: DependencyType,
     },
     /// Trace analysis completed
     TraceAnalysisCompleted {
+        /// ID of the analysed trace
         trace_id: TraceId,
+        /// Number of spans in the trace
         span_count: usize,
+        /// Number of spans that recorded errors
         error_count: usize,
+        /// End-to-end trace latency in milliseconds
         latency_ms: u64,
     },
     /// Metric threshold breached
     MetricThresholdBreached {
+        /// ID of the breaching metric
         metric_id: MetricId,
+        /// Threshold that was crossed
         threshold: f64,
+        /// Observed value that crossed it
         actual_value: f64,
+        /// Service the metric belongs to
         service_id: ServiceId,
     },
     /// Unknown event payload for forward compatibility
     Unknown {
+        /// Name of the unknown event type
         type_name: String,
+        /// Raw payload as received
         data: serde_json::Value,
     },
 }

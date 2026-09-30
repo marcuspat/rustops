@@ -56,11 +56,6 @@ pub enum Error {
     #[error("Cloud provider error: {provider} - {message}")]
     CloudProvider { provider: String, message: String },
 
-    /// Temporal error
-    #[cfg(feature = "temporal")]
-    #[error("Temporal error: {0}")]
-    Temporal(String),
-
     /// Serialization/deserialization error
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -99,10 +94,7 @@ impl Error {
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
-            Self::CloudProvider { .. }
-                | Self::Kubernetes(_)
-                | Self::Temporal(_)
-                | Self::Io(_)
+            Self::CloudProvider { .. } | Self::Kubernetes(_) | Self::Io(_)
         )
     }
 

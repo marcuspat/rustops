@@ -77,7 +77,7 @@ impl PrometheusAdapter {
             let client = client.clone();
             let url = url.clone();
             async move {
-                let mut request = client.get(&url);
+                let request = client.get(&url);
 
                 request
                     .send()
@@ -92,6 +92,7 @@ impl PrometheusAdapter {
     }
 
     /// Parse metric value from Prometheus response
+    #[allow(dead_code)] // stub retained by rescue pass
     fn parse_metric_value(value: serde_json::Value) -> Option<f64> {
         match value {
             serde_json::Value::Number(n) => n.as_f64(),
@@ -233,6 +234,7 @@ impl crate::adapter::IntegrationAdapter for PrometheusAdapter {
 
 #[derive(Debug, serde::Deserialize)]
 struct PrometheusResponse {
+    #[allow(dead_code)] // stub retained by rescue pass
     pub status: String,
     #[serde(rename = "data")]
     pub data: Option<PrometheusData>,
@@ -245,6 +247,7 @@ struct PrometheusData {
     // `result_type` key, doesn't find it, and fails deserialization -
     // which `query_api` turns into `IntegrationError::Deserialization`,
     // making every real (and every correctly-mocked) response an error.
+    #[allow(dead_code)] // stub retained by rescue pass
     #[serde(rename = "resultType")]
     pub result_type: String,
     pub result: Vec<PrometheusResult>,

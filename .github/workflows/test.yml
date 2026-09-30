@@ -1,9 +1,228 @@
-name: Test
-on: [push, pull_request]
+name: RustOps Test Suite
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  # ========================================================================
+  # Unit Tests
+  # ========================================================================
+  test-unit:
+    name: Unit Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, beta]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        exclude:
+          # Reduce matrix size for faster CI
+          - rust: beta
+            os: windows-latest
+          - rust: beta
+            os: macos-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run unit tests
+        run: cargo test --workspace --lib --verbose
+
+  # ========================================================================
+  # Integration Tests
+  # ========================================================================
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    # No service containers: the integration suites are hermetic (wiremock
+    # for Prometheus, in-memory stores). Nothing in the workspace talks to
+    # Kafka/Postgres/Redis yet — the old containers (one with a dead image
+    # tag) only made this job unrunnable.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run integration tests
+        run: cargo test --workspace --test '*'
+
+  # ========================================================================
+  # Property-Based Tests
+  # ========================================================================
+  test-property:
+    name: Property-Based Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run property-based tests
+        # The old `--features test-utils` referenced a feature no crate
+        # defines; the property tests live in rustops-common.
+        run: cargo test -p rustops-common --test property_tests --verbose
+
+  # ========================================================================
+  # Coverage
+  # ========================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install tarpaulin
+        run: cargo install --locked cargo-tarpaulin
+
+      - name: Generate coverage
+        run: |
+          cargo tarpaulin --workspace \
+            --exclude-files "*/tests/*" \
+            --exclude-files "*/benches/*" \
+            --timeout 300 \
+            --out Lcov \
+            --output-dir ./coverage \
+            -- --test-threads=1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ./coverage/
+
+  # ========================================================================
+  # Benchmarks
+  # ========================================================================
+  benchmark:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmarks
+        # github-action-benchmark's 'cargo' tool parses bencher-format text,
+        # not criterion's HTML report — emit bencher lines and capture them.
+        run: |
+          set -o pipefail
+          cargo bench --workspace -- --output-format bencher --save-baseline main | tee benchmark-output.txt
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'cargo'
+          output-file-path: benchmark-output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+
+  # ========================================================================
+  # Linting
+  # ========================================================================
+  lint:
+    name: Linting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        # Pedantic-as-error kept this job permanently red; the enforced bar
+        # is the same one that gates local work: zero warnings.
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Check documentation
+        run: cargo doc --workspace --no-deps
+
+  # ========================================================================
+  # Security
+  # ========================================================================
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+
+      - name: Check for duplicate dependencies
+        run: cargo tree --duplicates --workspace
+
+

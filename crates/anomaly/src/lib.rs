@@ -2,25 +2,18 @@
 //!
 //! Bounded context for detecting anomalies in telemetry data.
 //!
-//! ## Architecture
+//! ## What is implemented
 //!
-//! This crate implements the anomaly detection engine from ADR-0006:
-//! - Statistical baseline detection (Z-score, IQR, CUSUM)
-//! - ONNX ML model integration
-//! - Pattern recognition (clustering)
+//! - **Statistical detection** — Z-score (leave-one-out baseline) and IQR
+//!   detectors in [`statistical`]
+//! - **Routing** — [`router`] dispatches metrics to the registered detectors
 //!
-//! ## Key Components
+//! ## What is NOT implemented
 //!
-//! - **Detectors**: Various anomaly detection algorithms
-//! - **Models**: ONNX model management
-//! - **Router**: Routes telemetry to optimal detector
-//!
-//! ## Design
-//!
-//! Hybrid approach:
-//! - **Statistical**: Fast, rule-based detection (<1ms)
-//! - **ML**: Accurate but slower detection (~50ms)
-//! - **Pattern**: Known signature matching
+//! - **ONNX/ML inference** — [`models`] is an explicit stub: loading a model
+//!   returns an error until the `ort` dependency is enabled and the code is
+//!   finished. There is no ML detection in this crate today.
+//! - **CUSUM / seasonal / clustering** — not written yet.
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
@@ -34,7 +27,3 @@ pub use detector::{Anomaly, AnomalyDetector, AnomalyType, DetectionResult};
 pub use models::{ONNXModel, ONNXModelManager};
 pub use router::DetectionRouter;
 pub use statistical::{IQRDetector, ZScoreDetector};
-
-use rustops_common::{Error, Metric, MetricId, Result, ServiceId};
-use std::collections::HashMap;
-use std::time::Duration;

@@ -19,7 +19,7 @@
 #![warn(clippy::all)]
 
 use chrono::{DateTime, Utc};
-use rustops_common::{Error, LogEntry, Metric, Result, ServiceId, TraceSpan};
+use rustops_common::{LogEntry, Metric, Result, ServiceId, TraceSpan};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

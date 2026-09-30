@@ -94,9 +94,9 @@ impl BlastRadius {
                 Ok(())
             }
             BlastRadiusScope::Region => Ok(()),
-            BlastRadiusScope::Global => {
-                Err(Error::BlastRadiusExceeded("Global impact not allowed".to_string()))
-            }
+            BlastRadiusScope::Global => Err(Error::BlastRadiusExceeded(
+                "Global impact not allowed".to_string(),
+            )),
         }
     }
 }
@@ -190,9 +190,9 @@ impl CircuitBreaker {
         *self.last_failure_time.write().await = Some(Utc::now());
 
         let mut state = self.state.write().await;
-        if *failure_count >= self.failure_threshold {
-            *state = CircuitBreakerState::Open;
-        } else if *state == CircuitBreakerState::HalfOpen {
+        // Trip on reaching the threshold; a failure while half-open re-opens
+        // immediately regardless of the count.
+        if *failure_count >= self.failure_threshold || *state == CircuitBreakerState::HalfOpen {
             *state = CircuitBreakerState::Open;
         }
     }
@@ -304,7 +304,10 @@ impl SafetyInterlock {
     /// Get circuit breaker state for action
     pub async fn circuit_breaker_state(&self, action: &ActionType) -> Option<CircuitBreakerState> {
         let breakers = self.circuit_breakers.read().await;
-        breakers.get(action).map(|b| b.state().await)
+        match breakers.get(action) {
+            Some(b) => Some(b.state().await),
+            None => None,
+        }
     }
 }
 
@@ -370,9 +373,7 @@ impl RollbackManager {
                 tracing::info!("Executing recreate rollback");
                 Ok(())
             }
-            RollbackStrategy::Custom { rollback_fn } => {
-                rollback_fn(context).await
-            }
+            RollbackStrategy::Custom { rollback_fn } => rollback_fn(context.clone()).await,
         }
     }
 
@@ -388,6 +389,17 @@ impl Default for RollbackManager {
     }
 }
 
+/// Future returned by a custom rollback function.
+pub type RollbackFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>;
+
+/// Signature for custom rollback functions.
+///
+/// Rolling back a live system means calling APIs and waiting for them, so
+/// the function receives an owned [`RollbackContext`] and returns a boxed
+/// future — sync-only closures are a capability regression this type once
+/// carried (async -> sync -> async again).
+pub type RollbackFn = Arc<dyn Fn(RollbackContext) -> RollbackFuture + Send + Sync>;
+
 /// Rollback strategy
 #[derive(Clone)]
 pub enum RollbackStrategy {
@@ -399,7 +411,8 @@ pub enum RollbackStrategy {
     Recreate { description: String },
     /// Custom rollback function
     Custom {
-        rollback_fn: Arc<dyn Fn(&RollbackContext) -> Result<()> + Send + Sync>,
+        /// The function invoked to perform the rollback.
+        rollback_fn: RollbackFn,
     },
 }
 
@@ -456,12 +469,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_blast_radius_check() {
-        let radius = BlastRadius::new(BlastRadiusScope::Namespace)
-            .with_namespace("production".to_string());
+        let radius =
+            BlastRadius::new(BlastRadiusScope::Namespace).with_namespace("production".to_string());
 
         let context = IncidentContext {
             incident_id: "test".to_string(),
-            severity: IncidentSeverity::High,
+            severity: crate::IncidentSeverity::High,
             service_name: "test".to_string(),
             namespace: "staging".to_string(),
             cluster: "test".to_string(),
@@ -479,7 +492,7 @@ mod tests {
 
         let context = IncidentContext {
             incident_id: "test".to_string(),
-            severity: IncidentSeverity::Medium,
+            severity: crate::IncidentSeverity::Medium,
             service_name: "test".to_string(),
             namespace: "default".to_string(),
             cluster: "test".to_string(),
@@ -489,17 +502,28 @@ mod tests {
         };
 
         // First action should succeed
-        assert!(interlock.check_safe(&ActionType::RestartService, &context).await.is_ok());
-        interlock.record_action(&ActionType::RestartService, true).await;
+        assert!(interlock
+            .check_safe(&ActionType::RestartService, &context)
+            .await
+            .is_ok());
+        interlock
+            .record_action(&ActionType::RestartService, true)
+            .await;
 
         // Second action should fail due to cooldown
-        assert!(interlock.check_safe(&ActionType::RestartService, &context).await.is_err());
+        assert!(interlock
+            .check_safe(&ActionType::RestartService, &context)
+            .await
+            .is_err());
 
         // Wait for cooldown
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         // Should succeed now
-        assert!(interlock.check_safe(&ActionType::RestartService, &context).await.is_ok());
+        assert!(interlock
+            .check_safe(&ActionType::RestartService, &context)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -517,6 +541,75 @@ mod tests {
             metadata: serde_json::json!({}),
         };
 
-        assert!(manager.execute(&ActionType::RestartService, &context).await.is_ok());
+        assert!(manager
+            .execute(&ActionType::RestartService, &context)
+            .await
+            .is_ok());
+    }
+}
+
+#[cfg(test)]
+mod gate_round4_tests {
+    use super::*;
+
+    fn context() -> RollbackContext {
+        RollbackContext {
+            action: ActionType::RestartService,
+            incident_id: "gate-4".to_string(),
+            original_state: None,
+            current_state: None,
+            metadata: serde_json::json!({}),
+        }
+    }
+
+    #[tokio::test]
+    async fn custom_rollback_may_await() {
+        // Regression: RollbackFn was narrowed to a sync signature, making
+        // API-calling (async) rollbacks impossible.
+        let mut manager = RollbackManager::new();
+        manager.add_strategy(
+            ActionType::RestartService,
+            RollbackStrategy::Custom {
+                rollback_fn: Arc::new(|ctx: RollbackContext| {
+                    Box::pin(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        assert_eq!(ctx.incident_id, "gate-4");
+                        Ok(())
+                    }) as RollbackFuture
+                }),
+            },
+        );
+
+        manager
+            .execute(&ActionType::RestartService, &context())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn safety_breaker_half_open_failure_reopens() {
+        // The half-open re-open fix in record_failure (safety.rs) had no
+        // test. Drive the breaker through the real transitions and observe
+        // each state directly.
+        let breaker = CircuitBreaker::new(ActionType::RestartService, 1, 0);
+        // recovery_secs = 0 -> the recovery window is immediately elapsed.
+
+        assert_eq!(breaker.state().await, CircuitBreakerState::Closed);
+
+        // One failure trips it (threshold 1).
+        breaker.record_failure().await;
+        assert_eq!(breaker.state().await, CircuitBreakerState::Open);
+        assert!(breaker.allow_action().await.is_err());
+
+        // The window is 0s but the check is strictly elapsed > 0s, so tick
+        // past one second first; allow_action then transitions to HalfOpen
+        // and is permitted — observing HalfOpen, not Open.
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        breaker.allow_action().await.unwrap();
+
+        // A failure while HalfOpen must re-open immediately.
+        breaker.record_failure().await;
+        assert_eq!(breaker.state().await, CircuitBreakerState::Open);
+        assert!(breaker.allow_action().await.is_err());
     }
 }

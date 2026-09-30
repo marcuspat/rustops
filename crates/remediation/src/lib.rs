@@ -1,32 +1,28 @@
-//! # RustOps Remediation Engine
+//! # RustOps Remediation Engine (experimental, design-stage)
 //!
-//! Automated remediation engine with Temporal workflow orchestration,
-//! approval gates, and safety interlocks.
+//! Remediation workflow scaffolding: a policy engine with risk-based
+//! approval decisions, circuit breakers, blast-radius constraints,
+//! rollback strategies, and an in-process workflow engine.
 //!
-//! ## Features
+//! ## What is real
 //!
-//! - **Temporal Workflows**: Durable, replayable workflow execution
-//! - **Approval Gates**: Multi-factor approval based on risk level
-//! - **Blast Radius Limits**: Namespace and cluster-level constraints
-//! - **Circuit Breakers**: Stop after N failures
-//! - **Instant Rollback**: Automatic rollback on failure
-//! - **Safety Interlocks**: Multi-layer protection for critical actions
+//! - **Policy engine**: risk assessment and auto-approve / manual / block
+//!   decisions ([`policy`])
+//! - **Safety interlocks**: circuit breakers, blast-radius limits,
+//!   cooldowns, rollback bookkeeping ([`safety`])
+//! - **Workflow engine**: in-process orchestration of activity steps with
+//!   history ([`workflow`])
 //!
-//! ## Architecture
+//! ## What is not
 //!
-//! ```text
-//! Incident Detection
-//!       ↓
-//! Policy Engine (Risk Assessment)
-//!       ↓
-//! Decision: Auto-approve | Manual Approval | Block
-//!       ↓
-//! Temporal Workflow Execution
-//!       ↓
-//! Activity Executors (K8s, AWS, Azure, GCP)
-//!       ↓
-//! Verification & Rollback (if needed)
-//! ```
+//! - **Activities are simulated.** The only shipped executor is
+//!   [`activity::SimulatedActivityExecutor`], which logs and returns
+//!   `"simulated": true` payloads. Nothing here touches a real cluster or
+//!   cloud API yet.
+//! - There is **no Temporal integration** — workflows are plain in-process
+//!   async, not durable/replayable.
+//!
+//! This crate is not wired into the RustOps pipeline.
 
 pub mod activity;
 pub mod error;
@@ -35,7 +31,9 @@ pub mod safety;
 pub mod workflow;
 
 pub use error::{Error, Result};
-pub use policy::{ActionType, ApprovalStatus, PolicyDecision, PolicyEngine, RemediationPolicy, RiskLevel};
+pub use policy::{
+    ActionType, ApprovalStatus, PolicyDecision, PolicyEngine, RemediationPolicy, RiskLevel,
+};
 pub use safety::{BlastRadius, CircuitBreaker, RollbackManager, SafetyInterlock};
 pub use workflow::{RemediationWorkflow, WorkflowContext, WorkflowStatus};
 
@@ -45,8 +43,14 @@ pub struct RemediationConfig {
     /// Maximum number of concurrent remediation actions
     pub max_concurrent_actions: usize,
 
-    /// Default timeout for workflows
+    /// Default timeout for workflows, in seconds. `0` means unbounded —
+    /// the natural operator encoding for "no timeout" that must not
+    /// instead fail every workflow instantly.
     pub default_workflow_timeout_secs: u64,
+
+    /// Maximum number of terminal workflow contexts kept in the engine's
+    /// map (for get_workflow_status) before the oldest are evicted.
+    pub workflow_history_retention: usize,
 
     /// Enable circuit breakers
     pub enable_circuit_breakers: bool,
@@ -75,6 +79,7 @@ impl Default for RemediationConfig {
         Self {
             max_concurrent_actions: 10,
             default_workflow_timeout_secs: 300,
+            workflow_history_retention: 256,
             enable_circuit_breakers: true,
             circuit_breaker_threshold: 3,
             circuit_breaker_reset_timeout_secs: 300,

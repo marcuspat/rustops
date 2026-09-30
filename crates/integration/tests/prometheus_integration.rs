@@ -4,9 +4,8 @@
 
 use chrono::{Duration, Utc};
 use rustops_integration::{
-    adapter::IntegrationAdapter,
-    prometheus::PrometheusAdapter,
-    CircuitBreakerConfig, RateLimiterConfig, RetryConfig,
+    adapter::IntegrationAdapter, prometheus::PrometheusAdapter, CircuitBreakerConfig,
+    RateLimiterConfig, RetryConfig,
 };
 
 fn create_test_adapter(url: &str) -> PrometheusAdapter {
@@ -42,7 +41,9 @@ async fn test_prometheus_query_construction() {
     let query = "up{job=\"prometheus\"}";
 
     // This would make the actual query if Prometheus is running
-    let _ = adapter.query_range(query, start_time, end_time, "15s").await;
+    let _ = adapter
+        .query_range(query, start_time, end_time, "15s")
+        .await;
 }
 
 #[tokio::test]

@@ -112,11 +112,9 @@ impl DetectionRouter {
             // 2. Use IQR for metrics with high variance (outliers)
             // 3. Use Z-score for everything else (fast)
 
-            if self.ml.is_some() {
-                if self.should_use_ml(metric) {
-                    routed.ml.push(metric.clone());
-                    continue;
-                }
+            if self.ml.is_some() && self.should_use_ml(metric) {
+                routed.ml.push(metric.clone());
+                continue;
             }
 
             if self.should_use_iqr(metric) {

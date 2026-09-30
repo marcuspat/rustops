@@ -7,13 +7,12 @@
 //! - Discover services
 //! - Collect telemetry data
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use rustops_integration::{
     adapter::{IntegrationAdapter, MetricQuery, TelemetryCollector, TelemetryEvent},
     prometheus::{
-        AlertEvaluation, AlertRule, AlertStatus, KubernetesSDConfig, PrometheusAdapter,
-        PrometheusQuery, RelabelAction, RelabelConfig, ServiceDiscoveryConfig, ServiceTarget,
-        StaticTarget,
+        AlertRule, AlertStatus, KubernetesSDConfig, PrometheusAdapter, RelabelAction,
+        RelabelConfig, ServiceDiscoveryConfig, StaticTarget,
     },
     CircuitBreakerConfig, RateLimiterConfig, RetryConfig,
 };
@@ -246,14 +245,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Listening for events for 5 seconds...");
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while let Some(event) = receiver.recv().await {
-            match event {
-                TelemetryEvent::Metric(metric) => {
-                    println!(
-                        "📊 Metric: {} = {} @ {}",
-                        metric.name, metric.value, metric.timestamp
-                    );
-                }
-                _ => {}
+            if let TelemetryEvent::Metric(metric) = event {
+                println!(
+                    "📊 Metric: {} = {} @ {}",
+                    metric.name, metric.value, metric.timestamp
+                );
             }
         }
     })
@@ -261,17 +257,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n✅ Example completed successfully!");
     Ok(())
-}
-
-// Helper function to format duration
-fn format_duration(duration: Duration) -> String {
-    let secs = duration.num_seconds();
-    let mins = secs / 60;
-    let hours = mins / 60;
-
-    if hours > 0 {
-        format!("{}h{}m", hours, mins % 60)
-    } else {
-        format!("{}m{}s", mins, secs % 60)
-    }
 }

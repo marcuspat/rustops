@@ -9,12 +9,11 @@
 
 use crate::detector::{Anomaly, AnomalyDetector, AnomalyType, DetectionResult, Result};
 use async_trait::async_trait;
-use ndarray::{Array1, Array2, ArrayD};
+use ndarray::{Array2, ArrayD};
 use rustops_common::{Error, Metric};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
 
 /// ONNX model wrapper
 ///

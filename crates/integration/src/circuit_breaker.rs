@@ -10,9 +10,12 @@ use tokio::sync::RwLock;
 /// Circuit breaker state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
-    Closed,   // Normal operation
-    Open,     // Failing, reject calls
-    HalfOpen, // Testing if service recovered
+    /// Normal operation
+    Closed,
+    /// Failing, reject calls
+    Open,
+    /// Testing if service recovered
+    HalfOpen,
 }
 
 /// Circuit breaker configuration
@@ -178,7 +181,12 @@ impl CircuitBreaker {
         *failure_count += 1;
         *self.last_failure_time.write().await = Some(Instant::now());
 
-        if *failure_count >= self.config.error_threshold {
+        // Trip at the failure threshold, and re-open immediately on any
+        // failure while half-open: a failed probe must not leave the
+        // breaker letting traffic through.
+        let trips =
+            *failure_count >= self.config.error_threshold || state.state == CircuitState::HalfOpen;
+        if trips {
             state.state = CircuitState::Open;
             state.last_state_change = Instant::now();
             *failure_count = 0;
@@ -267,5 +275,59 @@ mod tests {
         // Try to execute operation
         let result = cb.call(async { Ok::<(), String>(()) }).await;
         assert!(matches!(result, Err(IntegrationError::CircuitBreakerOpen)));
+    }
+}
+
+#[cfg(test)]
+mod half_open_cycle_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn half_open_failure_reopens_and_later_success_closes() {
+        let cb = CircuitBreaker::new(CircuitBreakerConfig {
+            error_threshold: 2,
+            success_threshold: 1,
+            timeout: Duration::from_millis(50),
+            ..Default::default()
+        });
+
+        // Closed -> Open at the failure threshold.
+        cb.report_failure().await;
+        cb.report_failure().await;
+
+        // Inside the recovery window a call is rejected: that observes
+        // Open directly.
+        let rejected = cb.call(async { Ok::<(), String>(()) }).await;
+        assert!(matches!(
+            rejected,
+            Err(IntegrationError::CircuitBreakerOpen)
+        ));
+
+        // After the window a call is PERMITTED through HalfOpen. Observe it
+        // with a failing operation: the gate lets it through (an Open
+        // breaker would reject with CircuitBreakerOpen), and the failure
+        // while HalfOpen re-opens the breaker immediately — one call
+        // observes both properties.
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let failed = cb
+            .call(async { Err::<(), String>("boom".to_string()) })
+            .await;
+        assert!(
+            matches!(failed, Err(IntegrationError::Network(_))),
+            "post-window failing call must pass the HalfOpen gate, got {failed:?}"
+        );
+
+        // Re-opened with a fresh window: the next call is rejected.
+        let rejected_again = cb.call(async { Ok::<(), String>(()) }).await;
+        assert!(
+            matches!(rejected_again, Err(IntegrationError::CircuitBreakerOpen)),
+            "half-open failure must re-open the breaker"
+        );
+
+        // After the window once more, a success closes it.
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        cb.report_success().await;
+        assert!(matches!(cb.state().await, CircuitState::Closed));
     }
 }

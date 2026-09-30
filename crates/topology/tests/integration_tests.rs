@@ -3,14 +3,12 @@
 use rustops_common::ServiceId;
 use rustops_topology::{
     discovery::DiscoveryManager,
-    events::{EventEmitter, EventStatistics, InMemoryEventStore},
+    events::InMemoryEventStore,
     graph::ServiceGraph,
     impact::ImpactAnalyzer,
     model::{DependencyEdge, DependencyType, ServiceNode, ServiceType},
-    TopologyService, TopologyServiceBuilder,
+    TopologyService,
 };
-use std::collections::HashMap;
-use tokio_test;
 
 #[tokio::test]
 async fn test_topology_service_end_to_end() {
@@ -53,11 +51,7 @@ async fn test_topology_service_end_to_end() {
 
     // Add dependency: service-a calls service-b.
     let services = service.graph().get_all_services();
-    let dependency = DependencyEdge::new(
-        services[0].id,
-        services[1].id,
-        DependencyType::Calls,
-    );
+    let dependency = DependencyEdge::new(services[0].id, services[1].id, DependencyType::Calls);
 
     service
         .graph_mut()
@@ -125,17 +119,9 @@ async fn test_service_graph_operations() {
     graph.add_service(service3).unwrap();
 
     // Add dependencies: frontend -> api -> database
-    let dep1 = DependencyEdge::new(
-        id1,
-        id2,
-        DependencyType::Calls,
-    );
+    let dep1 = DependencyEdge::new(id1, id2, DependencyType::Calls);
 
-    let dep2 = DependencyEdge::new(
-        id2,
-        id3,
-        DependencyType::Reads,
-    );
+    let dep2 = DependencyEdge::new(id2, id3, DependencyType::Reads);
 
     graph.add_dependency(dep1.from, dep1.to, dep1).unwrap();
     graph.add_dependency(dep2.from, dep2.to, dep2).unwrap();
@@ -145,20 +131,14 @@ async fn test_service_graph_operations() {
     assert_eq!(graph.dependency_count(), 2);
 
     // Test dependency discovery
-    let downstream = graph
-        .find_downstream_dependencies(&id1)
-        .unwrap();
+    let downstream = graph.find_downstream_dependencies(&id1).unwrap();
     assert_eq!(downstream.len(), 2);
 
-    let upstream = graph
-        .find_upstream_dependencies(&id3)
-        .unwrap();
+    let upstream = graph.find_upstream_dependencies(&id3).unwrap();
     assert_eq!(upstream.len(), 2);
 
     // Test blast radius
-    let blast_radius = graph
-        .calculate_blast_radius(&id3, 5)
-        .unwrap();
+    let blast_radius = graph.calculate_blast_radius(&id3, 5).unwrap();
     assert!(blast_radius.total_affected_services >= 2);
 
     println!("Service graph operations test passed");
@@ -169,7 +149,7 @@ async fn test_event_system() {
     use rustops_topology::events::TopologyEventStore;
 
     let event_store = InMemoryEventStore::new();
-    let mut emitter = rustops_topology::events::EventEmitter::new(Box::new(event_store.clone()));
+    let emitter = rustops_topology::events::EventEmitter::new(Box::new(event_store.clone()));
 
     // Test emitting events
     let service_id = ServiceId::new();
@@ -211,11 +191,10 @@ async fn test_discovery_manager() {
     manager.add_discovery(Box::new(mock_discovery));
 
     // Run discovery (will return empty for mock)
-    let result = manager
+    manager
         .discover_and_update(&mut ServiceGraph::new(None))
         .await
         .unwrap();
-    assert!(result.total_services_discovered >= 0);
 
     // Test available sources
     let sources = manager.available_sources();

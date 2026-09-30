@@ -1,146 +1,143 @@
 # RustOps
 
-**AIOps toolkit for anomaly detection, incident management, and telemetry collection — built in Rust.**
+**An AIOps toolkit in Rust: statistical anomaly detection, incident correlation, service topology, and (experimental) automated remediation.**
 
-[![Rust](https://img.shields.io/badge/Rust-1.85+-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/Rust-1.87+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Main Branch](https://github.com/marcuspat/rustops/actions/workflows/main.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/main.yml)
+[![RustOps Test Suite](https://github.com/marcuspat/rustops/actions/workflows/test.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/test.yml)
 
 ---
 
-## Overview
+## What this is — and what it is not
 
-RustOps is a Cargo-workspace AIOps toolkit written in Rust. It provides real-time anomaly detection (Z-score, IQR, CUSUM), alert correlation with deduplication, an in-memory event-sourced incident store, and a Prometheus telemetry pipeline with log/metric normalizers.
+RustOps is a working set of building blocks for AIOps, not a finished platform. This README describes what the code actually does today. Where a capability is stubbed or experimental, it says so.
 
-This is an **early-stage project**. The core detection, incident, and telemetry crates are functional. The topology, knowledge, and remediation crates contain data models and interfaces but their primary integrations (Neo4j, ONNX, Temporal) are not yet wired up.
+**Implemented and tested:**
 
----
+- **Statistical anomaly detection** — Z-score with a leave-one-out baseline (an outlier cannot mask itself by inflating its own baseline) and IQR outlier detection. No ML: the ONNX model path is an explicit stub that returns an error until the `ort` integration is finished.
+- **Incident management** — alert correlation, similarity-based deduplication, and event-sourced incident records (in memory).
+- **Service topology** — a petgraph-based dependency graph with upstream/downstream traversal, blast-radius calculation, shortest-path (A*) impact routes, and impact analysis with severity scoring. Storage is **in-memory**; the Neo4j store is an unimplemented stub that refuses to connect rather than pretending.
+- **Integrations** — a real Prometheus adapter (`/api/v1/query_range` over HTTP, tested hermetically against a mock server), a Kubernetes adapter built on `kube` (its live tests are `#[ignore]`d without a cluster), and a ServiceNow adapter. Resilience primitives: circuit breaker (Closed → Open → HalfOpen with reset timeout), token-bucket rate limiter, retry with exponential backoff.
+- **Telemetry** — Prometheus text-format normalization into typed metrics; collectors hand off to a Kafka producer **stub** (no real broker I/O yet).
 
-## What Works
+**Experimental (compiled and tested, not wired into the pipeline):**
 
-### Anomaly Detection (`crates/anomaly`)
-- Z-score spike/drop detector
-- IQR outlier detector
-- CUSUM cumulative-change detector
-- Router that dispatches to multiple detectors by metric name
-- Unit and property tests
+- **`knowledge`** — HNSW approximate nearest-neighbor search (`hnsw_rs`, cosine distance) over *caller-supplied* vectors, pattern extraction from resolved incidents, and in-memory runbook storage. There is **no embedding model** in this repo; bring your own vectors.
+- **`remediation`** — workflow engine (concurrency limit, per-workflow timeouts), safety machinery (circuit breaker, blast-radius limits, approval gates, rollback strategies), and a **simulated** activity executor. Nothing here touches a real cluster or cloud account.
 
-### Incident Management (`crates/incident`)
-- In-memory event-sourced incident repository
-- Alert correlation (time-window + topology grouping)
-- Deduplication via similarity scoring
-- CQRS-style event store
-
-### Telemetry (`crates/telemetry`)
-- Prometheus log and metric normalizers (parses real Prometheus text formats)
-- Collector registry with metric aggregation
-- Batch processing pipeline
-
-### Common (`crates/common`)
-- Shared IDs, error types, domain events, telemetry primitives
-- Criterion benchmarks for metric creation and serialization
-
-### Integration (`crates/integration`)
-- Prometheus scrape client (functional)
-- Circuit breaker, retry with exponential backoff, rate limiter
-- Kubernetes adapter scaffold (reads config, pod list stubbed)
-- ServiceNow adapter scaffold (struct definitions only)
+**Not implemented:** Kafka ingestion, Neo4j persistence, ML inference, CUSUM/seasonal detection, PostgreSQL/Redis/Temporal — none of these are behind the binaries today, whatever older docs claimed.
 
 ---
 
-## What's Scaffolded (Not Yet Functional)
+## Quick start
 
-| Crate | Status | Notes |
-|-------|--------|-------|
-| `topology` | Data models + HNSW index | Neo4j store is stubbed (returns empty). Impact analysis returns hardcoded values. |
-| `knowledge` | Data models + HNSW | Embeddings use a placeholder tokenizer. Vector search exists but isn't production-viable. |
-| `remediation` | Policy engine + safety checks | Workflow executor is a skeleton. No real remediation actions implemented. |
-| `api` | Axum health-check server | Single `/health` endpoint. No real API routes. |
-| `pipeline` | Binary entry point | Heartbeat loop only. Does not wire detection to incident creation. |
-| `agent` | Binary entry point | Prometheus scrape loop. Telemetry producer is a no-op stub. |
-
----
-
-## Quick Start
+Prerequisites: Rust 1.87+ (uses u64::is_multiple_of, stabilized in 1.87; enforced via rust-version in Cargo.toml).
 
 ```bash
 git clone https://github.com/marcuspat/rustops.git
 cd rustops
 
-# Build the workspace
 cargo build --workspace
+cargo test --workspace          # all suites green, no external services needed
+cargo clippy --workspace --all-targets -- -D warnings
+```
 
-# Run tests
-cargo test --workspace
+### Binaries
 
-# Start the API server (health checks only)
+```bash
+# API server (axum skeleton: /health, /metrics placeholder, /api/v1)
 RUST_LOG=info cargo run --bin rustops-api
-# Available at http://localhost:8080/health
+
+# Telemetry agent: scrapes a real Prometheus at PROMETHEUS_URL on an interval
+RUST_LOG=info cargo run --bin rustops-agent
+
+# Pipeline: synthetic in-process source -> normalize -> detect -> topology
+# (no Kafka consumer yet; the synthetic source exists so the real path runs)
+RUST_LOG=info cargo run --bin rustops-pipeline
 ```
 
 ---
 
-## Project Structure
+## Workspace layout
 
 ```
-rustops/
-├── Cargo.toml              # Workspace
-├── crates/
-│   ├── common/              # Shared types, IDs, events, errors
-│   ├── telemetry/           # Prometheus normalizers, collector
-│   ├── anomaly/             # ZScore, IQR, CUSUM detectors
-│   ├── incident/            # Correlation, dedup, event store
-│   ├── integration/         # Prometheus client, circuit breaker
-│   ├── topology/            # Service graph (scaffolded)
-│   ├── knowledge/           # HNSW, embeddings (scaffolded)
-│   └── remediation/         # Policy engine (scaffolded)
-├── crates/api/              # Axum server (health only)
-├── crates/pipeline/         # Pipeline binary (heartbeat)
-├── crates/agent/            # Agent binary (prometheus scrape)
-└── docs/                     # Manual
+crates/
+├── common/        # IDs, domain events, error types, Metric primitives
+├── telemetry/     # Prometheus text-format normalization, collectors (Kafka stub)
+├── anomaly/       # Z-score + IQR detectors, detector router (ONNX stubbed)
+├── incident/      # Correlation, deduplication, event-sourced incidents
+├── integration/   # Prometheus / Kubernetes / ServiceNow adapters + resilience
+├── topology/      # In-memory service graph, blast radius, impact analysis
+├── api/           # axum API skeleton
+├── agent/         # Prometheus scrape loop -> collector
+├── pipeline/      # Synthetic source -> normalize -> detect -> topology
+├── knowledge/     # EXPERIMENTAL: HNSW vector search, patterns, runbooks
+└── remediation/   # EXPERIMENTAL: workflow engine + simulated executor
 ```
+
+| Crate | Status | Key exports |
+|-------|--------|-------------|
+| `common` | stable | typed IDs, `DomainEvent`, `Metric`, `Error` |
+| `telemetry` | working; Kafka stubbed | `TelemetryNormalizer`, `MetricsCollector` |
+| `anomaly` | working (statistical only) | `ZScoreDetector`, `IQRDetector`, `DetectionRouter` |
+| `incident` | working (in-memory) | `AlertCorrelator`, `AlertDeduplicator` |
+| `integration` | working | `PrometheusAdapter`, `KubernetesAdapter`, `CircuitBreaker`, `RateLimiter` |
+| `topology` | working (in-memory; Neo4j stub errors) | `ServiceGraph`, `ImpactAnalyzer` |
+| `api` | skeleton | health endpoint |
+| `agent` | working against a live Prometheus | scrape loop |
+| `pipeline` | working with synthetic source | normalize → detect → topology |
+| `knowledge` | experimental | `HNSWIndexer`, `PatternExtractor`, runbooks |
+| `remediation` | experimental, simulated | `WorkflowEngine`, `SafetyCheck`, rollback |
 
 ---
 
-## Example: Anomaly Detection
+## Example
 
 ```rust
-use rustops_anomaly::statistical::ZScoreDetector;
-use rustops_anomaly::detector::AnomalyDetector;
-use rustops_common::metrics::Metric;
+use rustops_anomaly::{AnomalyDetector, ZScoreDetector};
 
 let detector = ZScoreDetector::new(2.0);
-let metrics = vec![
-    Metric::new("cpu_usage", 45.0),
-    Metric::new("cpu_usage", 47.0),
-    Metric::new("cpu_usage", 98.0),  // spike
-];
-let result = detector.detect(&metrics).await?;
+let result = detector.detect(&metrics).await?;   // needs >= 8 samples per metric name
 
 for anomaly in result.anomalies {
-    println!("Anomaly: {:?} confidence={}", anomaly.anomaly_type, anomaly.confidence);
+    println!("{:?} score={:.2}", anomaly.anomaly_type, anomaly.score);
 }
 ```
+
+The detector requires at least 8 samples of a metric name in a batch before it scores anything — below that the baseline is too small to mean much.
 
 ---
 
 ## Configuration
 
-Copy `config.yaml.example` to `config.yaml` and adjust values. The default configuration runs in-memory with no external dependencies.
+The topology service takes its optional Prometheus endpoint from `TopologyConfig::prometheus_url` (empty = no Prometheus-backed discovery). The agent reads `PROMETHEUS_URL` and a scrape interval. The pipeline's Kafka settings are placeholders for the future consumer and are logged as such.
 
 ---
 
-## Testing
+## Development
 
 ```bash
-# Unit tests
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings   # CI-enforced, zero warnings
 cargo test --workspace
-
-# Property-based tests (proptest)
-cargo test --workspace -p rustops-common -- property_tests
+cargo bench -p rustops-common                            # criterion benches for domain events
 ```
+
+CI runs build, tests, lint, and security scanning via the workflows in `.github/workflows/`.
+
+### Known security debt
+
+Outbound TLS currently runs on the reqwest 0.11 stack (rustls 0.21 /
+rustls-webpki 0.101 / h2 0.3), which carries three ignored
+certificate-path-validation advisories plus an h2 DoS advisory (see
+`.cargo/audit.toml` for the full list with justifications, and issue #15
+for the reqwest 0.12 migration that clears them). Basic-auth credentials
+sent by the Prometheus adapter travel over that stack — treat scraped
+endpoints as trusted networks until #15 lands.
 
 ---
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).

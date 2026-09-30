@@ -128,7 +128,7 @@ impl TestDataGenerator {
 
     fn random_timestamp_nanos(&mut self) -> chrono::DateTime<chrono::Utc> {
         let now = chrono::Utc::now();
-        let nanos_ago = self.rng.gen_range(0..86400_000_000_000); // Within last 24 hours in nanos
+        let nanos_ago = self.rng.gen_range(0..86_400_000_000_000); // Within last 24 hours in nanos
         now - chrono::Duration::nanoseconds(nanos_ago)
     }
 

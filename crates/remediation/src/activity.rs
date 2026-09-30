@@ -75,221 +75,119 @@ pub trait ActivityExecutor: Send + Sync {
     }
 }
 
-/// Kubernetes activity executor
-#[cfg(feature = "kubernetes")]
-pub struct KubernetesActivityExecutor {
-    #[allow(dead_code)]
-    client: Option<kube::Client>,
-}
+/// Simulated activity executor.
+///
+/// Logs each activity and returns a successful result **without touching
+/// any real system** — every payload carries `"simulated": true` and the
+/// execution time is the real elapsed time of the (trivial) call. This is
+/// the only executor that ships today; real Kubernetes/cloud executors do
+/// not exist yet. Use it to exercise the workflow engine, policy gates,
+/// and safety interlocks end to end.
+pub struct SimulatedActivityExecutor;
 
-#[cfg(feature = "kubernetes")]
-impl KubernetesActivityExecutor {
-    /// Create new Kubernetes executor
-    pub fn new() -> Result<Self> {
-        Ok(Self { client: None })
+impl SimulatedActivityExecutor {
+    /// Create a new simulated executor.
+    pub fn new() -> Self {
+        Self
     }
 
-    /// Create with client
-    pub fn with_client(client: kube::Client) -> Self {
-        Self { client: Some(client) }
-    }
-}
-
-#[cfg(feature = "kubernetes")]
-#[async_trait::async_trait]
-impl ActivityExecutor for KubernetesActivityExecutor {
-    async fn execute(&self, input: ActivityInput) -> Result<ActivityOutput> {
-        let start = std::time::Instant::now();
-
-        match input.activity_type.as_str() {
-            "restart_service" => self.restart_service(input).await,
-            "scale_service" => self.scale_service(input).await,
-            "delete_pod" => self.delete_pod(input).await,
-            "get_deployment" => self.get_deployment(input).await,
-            _ => Err(Error::activity(format!(
-                "Unknown Kubernetes activity: {}",
-                input.activity_type
-            ))),
+    fn simulate(
+        activity: &str,
+        input: &ActivityInput,
+        start: std::time::Instant,
+        mut data: serde_json::Value,
+    ) -> ActivityOutput {
+        tracing::info!(activity, data = %input.data, "simulating activity (no real system is touched)");
+        if let Some(obj) = data.as_object_mut() {
+            obj.insert("simulated".to_string(), serde_json::Value::Bool(true));
+        }
+        ActivityOutput {
+            success: true,
+            data: Some(data),
+            error: None,
+            execution_time_ms: start.elapsed().as_millis() as u64,
         }
     }
 
-    fn activity_type(&self) -> &str {
-        "kubernetes"
+    fn require<'a>(input: &'a ActivityInput, key: &str) -> Result<&'a str> {
+        input.data[key]
+            .as_str()
+            .ok_or_else(|| Error::activity(format!("Missing {key}")))
     }
 }
 
-#[cfg(feature = "kubernetes")]
-impl KubernetesActivityExecutor {
-    async fn restart_service(&self, input: ActivityInput) -> Result<ActivityOutput> {
-        // In production, this would restart pods by deleting them
-        // and letting the deployment recreate them
-
-        tracing::info!("Restarting service: {}", input.data);
-
-        Ok(ActivityOutput {
-            success: true,
-            data: Some(serde_json::json!({
-                "message": "Service restarted",
-                "service": input.data
-            })),
-            error: None,
-            execution_time_ms: 100,
-        })
-    }
-
-    async fn scale_service(&self, input: ActivityInput) -> Result<ActivityOutput> {
-        let service_name = input.data["service_name"]
-            .as_str()
-            .ok_or_else(|| Error::activity("Missing service_name"))?;
-
-        let replicas = input.data["replicas"]
-            .as_u64()
-            .ok_or_else(|| Error::activity("Missing replicas"))?;
-
-        tracing::info!("Scaling service {} to {} replicas", service_name, replicas);
-
-        Ok(ActivityOutput {
-            success: true,
-            data: Some(serde_json::json!({
-                "service": service_name,
-                "replicas": replicas,
-                "message": "Service scaled"
-            })),
-            error: None,
-            execution_time_ms: 200,
-        })
-    }
-
-    async fn delete_pod(&self, input: ActivityInput) -> Result<ActivityOutput> {
-        let pod_name = input.data["pod_name"]
-            .as_str()
-            .ok_or_else(|| Error::activity("Missing pod_name"))?;
-
-        let namespace = input.data["namespace"]
-            .as_str()
-            .unwrap_or("default");
-
-        tracing::info!("Deleting pod {}/{}", namespace, pod_name);
-
-        Ok(ActivityOutput {
-            success: true,
-            data: Some(serde_json::json!({
-                "pod": pod_name,
-                "namespace": namespace,
-                "message": "Pod deleted"
-            })),
-            error: None,
-            execution_time_ms: 50,
-        })
-    }
-
-    async fn get_deployment(&self, input: ActivityInput) -> Result<ActivityOutput> {
-        let deployment_name = input.data["deployment_name"]
-            .as_str()
-            .ok_or_else(|| Error::activity("Missing deployment_name"))?;
-
-        tracing::info!("Getting deployment: {}", deployment_name);
-
-        Ok(ActivityOutput {
-            success: true,
-            data: Some(serde_json::json!({
-                "deployment": deployment_name,
-                "replicas": 3,
-                "ready_replicas": 3,
-                "updated_replicas": 3
-            })),
-            error: None,
-            execution_time_ms: 30,
-        })
-    }
-}
-
-#[cfg(feature = "kubernetes")]
-impl Default for KubernetesActivityExecutor {
+impl Default for SimulatedActivityExecutor {
     fn default() -> Self {
-        Self::new().unwrap()
+        Self::new()
     }
 }
 
-/// AWS activity executor
-#[cfg(feature = "aws")]
-pub struct AwsActivityExecutor {
-    #[allow(dead_code)]
-    config: Option<aws_config::SdkConfig>,
-}
-
-#[cfg(feature = "aws")]
-impl AwsActivityExecutor {
-    /// Create new AWS executor
-    pub async fn new() -> Result<Self> {
-        Ok(Self { config: None })
-    }
-
-    /// Create with config
-    pub fn with_config(config: aws_config::SdkConfig) -> Self {
-        Self {
-            config: Some(config),
-        }
-    }
-}
-
-#[cfg(feature = "aws")]
 #[async_trait::async_trait]
-impl ActivityExecutor for AwsActivityExecutor {
+impl ActivityExecutor for SimulatedActivityExecutor {
     async fn execute(&self, input: ActivityInput) -> Result<ActivityOutput> {
         let start = std::time::Instant::now();
 
         match input.activity_type.as_str() {
-            "reboot_instance" => self.reboot_instance(input).await,
-            "failover_database" => self.failover_database(input).await,
-            _ => Err(Error::activity(format!(
-                "Unknown AWS activity: {}",
-                input.activity_type
-            ))),
+            "check_service_health" => Ok(Self::simulate(
+                "check_service_health",
+                &input,
+                start,
+                serde_json::json!({ "healthy": true, "message": "Service healthy" }),
+            )),
+            "restart_service" => Ok(Self::simulate(
+                "restart_service",
+                &input,
+                start,
+                serde_json::json!({ "message": "Service restarted", "service": input.data }),
+            )),
+            "scale_service" => {
+                let service_name = Self::require(&input, "service_name")?;
+                let replicas = input.data["replicas"]
+                    .as_u64()
+                    .ok_or_else(|| Error::activity("Missing replicas"))?;
+                Ok(Self::simulate(
+                    "scale_service",
+                    &input,
+                    start,
+                    serde_json::json!({ "service": service_name, "replicas": replicas, "message": "Service scaled" }),
+                ))
+            }
+            "delete_pod" => {
+                let pod_name = Self::require(&input, "pod_name")?;
+                let namespace = input.data["namespace"].as_str().unwrap_or("default");
+                Ok(Self::simulate(
+                    "delete_pod",
+                    &input,
+                    start,
+                    serde_json::json!({ "pod": pod_name, "namespace": namespace, "message": "Pod deleted" }),
+                ))
+            }
+            "get_deployment" => {
+                let deployment_name = Self::require(&input, "deployment_name")?;
+                Ok(Self::simulate(
+                    "get_deployment",
+                    &input,
+                    start,
+                    serde_json::json!({ "deployment": deployment_name, "replicas": 3, "ready_replicas": 3, "updated_replicas": 3 }),
+                ))
+            }
+            other => Err(Error::activity(format!("Unknown activity: {other}"))),
         }
     }
 
     fn activity_type(&self) -> &str {
-        "aws"
-    }
-}
-
-#[cfg(feature = "aws")]
-impl AwsActivityExecutor {
-    async fn reboot_instance(&self, input: ActivityInput) -> Result<ActivityOutput> {
-        let instance_id = input.data["instance_id"]
-            .as_str()
-            .ok_or_else(|| Error::activity("Missing instance_id"))?;
-
-        tracing::info!("Rebooting EC2 instance: {}", instance_id);
-
-        Ok(ActivityOutput {
-            success: true,
-            data: Some(serde_json::json!({
-                "instance_id": instance_id,
-                "message": "Instance reboot initiated"
-            })),
-            error: None,
-            execution_time_ms: 150,
-        })
+        "simulated"
     }
 
-    async fn failover_database(&self, input: ActivityInput) -> Result<ActivityOutput> {
-        let db_instance_id = input.data["db_instance_id"]
-            .as_str()
-            .ok_or_else(|| Error::activity("Missing db_instance_id"))?;
-
-        tracing::info!("Initiating failover for RDS instance: {}", db_instance_id);
-
-        Ok(ActivityOutput {
-            success: true,
-            data: Some(serde_json::json!({
-                "db_instance_id": db_instance_id,
-                "message": "Failover initiated"
-            })),
-            error: None,
-            execution_time_ms: 500,
-        })
+    fn supports(&self, activity_type: &str) -> bool {
+        matches!(
+            activity_type,
+            "check_service_health"
+                | "restart_service"
+                | "scale_service"
+                | "delete_pod"
+                | "get_deployment"
+        )
     }
 }
 
@@ -350,10 +248,9 @@ impl ActivityExecutor for CompositeActivityExecutor {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "kubernetes")]
     #[tokio::test]
-    async fn test_kubernetes_restart() {
-        let executor = KubernetesActivityExecutor::new().unwrap();
+    async fn test_simulated_restart() {
+        let executor = SimulatedActivityExecutor::new();
 
         let input = ActivityInput {
             activity_type: "restart_service".to_string(),
@@ -367,10 +264,9 @@ mod tests {
         assert!(output.success);
     }
 
-    #[cfg(feature = "kubernetes")]
     #[tokio::test]
-    async fn test_kubernetes_scale() {
-        let executor = KubernetesActivityExecutor::new().unwrap();
+    async fn test_simulated_scale() {
+        let executor = SimulatedActivityExecutor::new();
 
         let input = ActivityInput {
             activity_type: "scale_service".to_string(),

@@ -4,11 +4,8 @@
 
 use crate::detector::{Anomaly, AnomalyDetector, AnomalyType, DetectionResult, Result};
 use async_trait::async_trait;
-use rustops_common::{Metric, MetricId};
+use rustops_common::Metric;
 use std::collections::HashMap;
-
-/// Window size for statistical calculations
-const DEFAULT_WINDOW_SIZE: usize = 100;
 
 /// Z-score detector - detects spikes using standard deviation
 ///
@@ -18,69 +15,22 @@ const DEFAULT_WINDOW_SIZE: usize = 100;
 pub struct ZScoreDetector {
     /// Z-score threshold (typically 2-3)
     threshold: f64,
-    /// Metric history for calculating mean/stddev
-    history: HashMap<MetricId, MetricHistory>,
 }
 
-/// History of metric values for statistical calculations
-#[derive(Clone, Default)]
-struct MetricHistory {
-    values: Vec<f64>,
-    window_size: usize,
-}
-
-impl MetricHistory {
-    fn new(window_size: usize) -> Self {
-        Self {
-            values: Vec::with_capacity(window_size),
-            window_size,
-        }
-    }
-
-    fn add(&mut self, value: f64) {
-        self.values.push(value);
-        if self.values.len() > self.window_size {
-            self.values.remove(0);
-        }
-    }
-
-    fn mean(&self) -> f64 {
-        if self.values.is_empty() {
-            return 0.0;
-        }
-        self.values.iter().sum::<f64>() / self.values.len() as f64
-    }
-
-    fn stddev(&self) -> f64 {
-        if self.values.len() < 2 {
-            return 0.0;
-        }
-        let mean = self.mean();
-        let variance = self.values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-            / (self.values.len() - 1) as f64;
-        variance.sqrt()
-    }
-
-    fn z_score(&self, value: f64) -> f64 {
-        let stddev = self.stddev();
-        if stddev == 0.0 {
-            return 0.0;
-        }
-        (value - self.mean()) / stddev
-    }
-}
+/// Minimum samples of a metric in a batch before z-scores are computed.
+/// Below this, the leave-one-out baseline is too small to be meaningful.
+const MIN_SAMPLES: usize = 8;
 
 impl ZScoreDetector {
     /// Create a new Z-score detector
     pub fn new(threshold: f64) -> Self {
-        Self {
-            threshold,
-            history: HashMap::new(),
-        }
+        Self { threshold }
     }
+}
 
-    /// Create with default threshold (3.0)
-    pub fn default() -> Self {
+impl Default for ZScoreDetector {
+    /// Default threshold of 3.0.
+    fn default() -> Self {
         Self::new(3.0)
     }
 }
@@ -91,32 +41,44 @@ impl AnomalyDetector for ZScoreDetector {
         let start = std::time::Instant::now();
         let mut anomalies = Vec::new();
 
-        // Note: In production, we'd use Arc<Mutex<HashMap>> for thread-safe history
-        // For this implementation, we'll compute z-scores from the batch itself
+        // Group values by metric name once, keeping each sample's index so
+        // the leave-one-out baseline can exclude exactly this instance.
+        let mut by_name: HashMap<&str, Vec<(usize, f64)>> = HashMap::new();
+        for (i, metric) in metrics.iter().enumerate() {
+            by_name
+                .entry(metric.name.as_str())
+                .or_default()
+                .push((i, metric.value));
+        }
 
-        for metric in metrics {
-            // Get or create history for this metric
-            // In a real implementation, history would be shared across calls
-
-            let values: Vec<f64> = metrics
-                .iter()
-                .filter(|m| m.name == metric.name)
-                .map(|m| m.value)
-                .collect();
-
-            // Need at least a handful of samples for the mean/stddev to be
-            // meaningful; 5 is the minimum where sample variance is not
-            // dominated by a single point.
-            if values.len() < 5 {
-                continue; // Not enough data
+        for (i, metric) in metrics.iter().enumerate() {
+            // .get() not index[]: keeps this a skip instead of a panic if a
+            // future refactor ever filters the grouping pass.
+            let Some(values) = by_name.get(metric.name.as_str()) else {
+                continue;
+            };
+            if values.len() < MIN_SAMPLES {
+                continue; // Not enough data for a meaningful baseline
             }
 
-            let mean = values.iter().sum::<f64>() / values.len() as f64;
+            // Leave-one-out baseline: exclude the candidate point from its
+            // own mean/stddev, so a large outlier cannot mask itself by
+            // inflating the baseline it is judged against. Computed as a
+            // direct two-pass over the other samples: subtracting the
+            // candidate's squared deviation from a sum-of-squares that it
+            // dominates is catastrophic cancellation and fabricates
+            // anomalies on flat series.
+            let others: Vec<f64> = values
+                .iter()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, v)| *v)
+                .collect();
+            let mean = others.iter().sum::<f64>() / others.len() as f64;
             let variance =
-                values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
+                others.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (others.len() - 1) as f64;
             let stddev = variance.sqrt();
 
-            if stddev == 0.0 {
+            if stddev == 0.0 || !stddev.is_finite() {
                 continue;
             }
 
@@ -183,11 +145,6 @@ impl IQRDetector {
         Self { multiplier }
     }
 
-    /// Create with default multiplier (1.5)
-    pub fn default() -> Self {
-        Self::new(1.5)
-    }
-
     /// Calculate quartiles from sorted values
     fn quartiles(values: &mut [f64]) -> (f64, f64, f64) {
         values.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -198,6 +155,13 @@ impl IQRDetector {
         let q3 = values[(3 * n) / 4];
 
         (q1, q2, q3)
+    }
+}
+
+impl Default for IQRDetector {
+    /// Default multiplier of 1.5.
+    fn default() -> Self {
+        Self::new(1.5)
     }
 }
 
@@ -216,7 +180,7 @@ impl AnomalyDetector for IQRDetector {
                 .push(metric);
         }
 
-        for (name, group) in metric_groups {
+        for (_name, group) in metric_groups {
             if group.len() < 4 {
                 continue; // Need at least 4 points for IQR
             }
@@ -311,6 +275,46 @@ mod tests {
     }
 
     #[test]
+    fn test_loo_flat_large_series_produces_no_anomaly() {
+        // Regression: an earlier sum-of-squares subtraction was numerically
+        // unstable on flat series with a large mean — the near-cancelling
+        // terms left a spurious variance and fabricated anomalies. The
+        // two-pass leave-one-out must keep this series clean.
+        let detector = ZScoreDetector::new(3.0);
+        let base = 1e8_f64;
+        let metrics = (0..8)
+            .map(|i| create_test_metric("net_bytes", base + (i as f64) * 1.0))
+            .collect::<Vec<_>>();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(detector.detect(&metrics)).unwrap();
+        assert!(
+            result.anomalies.is_empty(),
+            "flat series with a large mean must not fabricate anomalies: {:?}",
+            result.anomalies
+        );
+    }
+
+    #[test]
+    fn test_loo_detects_outlier_in_large_mean_series() {
+        // The leave-one-out property still holds at large magnitudes: a
+        // genuine spike must be flagged even when the mean is huge.
+        let detector = ZScoreDetector::new(3.0);
+        let base = 1e8_f64;
+        let metrics = (0..7)
+            .map(|i| create_test_metric("net_bytes", base + i as f64))
+            .chain(std::iter::once(create_test_metric("net_bytes", base + 1e4)))
+            .collect::<Vec<_>>();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(detector.detect(&metrics)).unwrap();
+        assert!(
+            !result.anomalies.is_empty(),
+            "genuine spike must be detected"
+        );
+    }
+
+    #[test]
     fn test_iqr_detector() {
         let detector = IQRDetector::new(1.5);
 
@@ -329,25 +333,5 @@ mod tests {
 
         assert!(!result.anomalies.is_empty());
         assert_eq!(result.anomalies[0].anomaly_type, AnomalyType::Outlier);
-    }
-
-    #[test]
-    fn test_metric_history() {
-        let mut history = MetricHistory::new(5);
-
-        history.add(10.0);
-        history.add(20.0);
-        history.add(30.0);
-
-        assert!((history.mean() - 20.0).abs() < 0.01);
-
-        history.add(40.0);
-        history.add(50.0);
-
-        // Window is full, adding more should evict oldest
-        history.add(60.0);
-
-        assert_eq!(history.values.len(), 5);
-        assert!(!history.values.contains(&10.0));
     }
 }

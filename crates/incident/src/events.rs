@@ -13,23 +13,42 @@ use tokio::sync::RwLock;
 pub enum IncidentEvent {
     /// Incident was created
     Created {
+        /// Id.
         id: IncidentId,
+        /// Title.
         title: String,
+        /// Severity.
         severity: Severity,
+        /// Alert ids.
         alert_ids: Vec<AlertId>,
     },
     /// Incident was acknowledged
-    Acknowledged { commander: String },
+    /// Incident was acknowledged.
+    Acknowledged {
+        /// Who acknowledged (incident commander).
+        commander: String,
+    },
     /// Investigation started
     InvestigationStarted,
     /// Incident was resolved
-    Resolved { resolution: String },
+    Resolved {
+        /// Resolution description.
+        resolution: String,
+    },
     /// Incident was closed
     Closed,
     /// Root cause was identified
-    RootCauseIdentified { root_cause: String },
+    RootCauseIdentified {
+        /// Root cause description.
+        root_cause: String,
+    },
     /// Label was added
-    LabelAdded { key: String, value: String },
+    LabelAdded {
+        /// Label key.
+        key: String,
+        /// Label value.
+        value: String,
+    },
 }
 
 impl IncidentEvent {

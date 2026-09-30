@@ -7,98 +7,146 @@ use crate::adapter::{self, IntegrationAdapter, TelemetryCollector};
 use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
 use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 use async_trait::async_trait;
+use base64::engine::general_purpose::STANDARD as Base64Standard;
+use base64::Engine as _;
 use chrono::{DateTime, Utc};
-use hyper::body::Bytes;
-use hyper::header::{CONTENT_TYPE, USER_AGENT};
-use hyper::http::HeaderValue;
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use hyper::{Body, Client, Method, Request};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 // Prometheus API response types
+/// Raw Prometheus API response envelope
 #[derive(Debug, Deserialize)]
 pub struct PrometheusResponse {
+    /// Response status ("success" or "error")
     pub status: String,
+    /// Response payload
     pub data: PrometheusData,
+    /// Error message when status is "error"
     pub error: Option<String>,
 }
 
+/// Prometheus query result payload
 #[derive(Debug, Deserialize)]
 pub struct PrometheusData {
+    /// Result type (vector, matrix, scalar, or string)
     pub result_type: String,
+    /// Result series
     pub result: Vec<PrometheusMetric>,
 }
 
+/// Single metric series from a Prometheus response
 #[derive(Debug, Deserialize)]
 pub struct PrometheusMetric {
+    /// Metric labels
     pub metric: HashMap<String, String>,
+    /// Instant query sample [timestamp, value]
     pub value: Option<Vec<serde_json::Value>>,
+    /// Range query samples [timestamp, value]
     pub values: Option<Vec<Vec<serde_json::Value>>>,
 }
 
 // Query parameters
+/// Prometheus query parameters
 #[derive(Debug, Clone)]
 pub struct PrometheusQuery {
+    /// PromQL expression
     pub query: String,
+    /// Range query start time
     pub start_time: Option<DateTime<Utc>>,
+    /// Range query end time
     pub end_time: Option<DateTime<Utc>>,
+    /// Query resolution step
     pub step: Option<String>,
+    /// Evaluation timeout
     pub timeout: Option<String>,
 }
 
 // Alert configuration
+/// Prometheus alert rule
 #[derive(Debug, Clone)]
 pub struct AlertRule {
+    /// Rule name
     pub name: String,
+    /// PromQL alert expression
     pub expression: String,
+    /// Firing duration before alerting
     pub duration: String,
+    /// Alert labels
     pub labels: HashMap<String, String>,
+    /// Alert annotations
     pub annotations: HashMap<String, String>,
 }
 
 // Service discovery configuration
+/// Prometheus service discovery configuration
 #[derive(Debug, Clone)]
 pub struct ServiceDiscoveryConfig {
+    /// Kubernetes service discovery settings
     pub kubernetes_sd: Option<KubernetesSDConfig>,
+    /// Static scrape targets
     pub static_configs: Option<Vec<StaticTarget>>,
+    /// Relabeling rules
     pub relabel_configs: Option<Vec<RelabelConfig>>,
 }
 
+/// Kubernetes service discovery settings
 #[derive(Debug, Clone)]
 pub struct KubernetesSDConfig {
+    /// Namespaces to discover in
     pub namespaces: Vec<String>,
+    /// Label selectors for discovered resources
     pub selectors: HashMap<String, String>,
 }
 
+/// Static scrape target
 #[derive(Debug, Clone)]
 pub struct StaticTarget {
+    /// Target addresses
     pub targets: Vec<String>,
+    /// Labels attached to targets
     pub labels: HashMap<String, String>,
 }
 
+/// Relabeling rule
 #[derive(Debug, Clone)]
 pub struct RelabelConfig {
+    /// Source label names
     pub source_labels: Vec<String>,
+    /// Separator between source label values
     pub separator: Option<String>,
+    /// Regular expression to match
     pub regex: Option<String>,
+    /// Modulus for hashmod actions
     pub modulus: Option<u64>,
+    /// Replacement value
     pub replacement: String,
+    /// Relabel action to apply
     pub action: RelabelAction,
+    /// Target label name
     pub target_label: Option<String>,
 }
 
+/// Relabel action type
 #[derive(Debug, Clone)]
 pub enum RelabelAction {
+    /// Replace matching label values
     Replace,
+    /// Keep matching targets
     Keep,
+    /// Drop matching targets
     Drop,
+    /// Hash label values modulo a number
     HashMod,
+    /// Map labels to new names
     LabelMap,
+    /// Map metric labels to new names
     MetricLabelMap,
+    /// Drop matching labels
     LabelDrop,
+    /// Drop matching metric labels
     MetricLabelDrop,
 }
 
@@ -107,6 +155,9 @@ pub struct PrometheusAdapter {
     base: adapter::BaseAdapter,
     client: Client<hyper::client::HttpConnector>,
     base_url: String,
+    /// Basic-auth credentials, sent on every request. Populated but
+    /// historically never applied — scrapes against a protected Prometheus
+    /// failed with a generic 401 instead of authenticating.
     auth: Option<(String, String)>,
     headers: HashMap<String, String>,
 }
@@ -174,22 +225,31 @@ impl PrometheusAdapter {
         }
 
         let params_clone = params.clone();
+        let auth = self.auth_header();
         let base = self.base.clone();
         let client = self.client.clone();
 
         base.execute_with_resilience(move || {
             let client = client.clone();
             let url = url.clone();
+            let auth = auth.clone();
             let params = params_clone.clone();
             async move {
-                let request = Request::builder()
-                    .method(Method::GET)
+                // POST with an application/x-www-form-urlencoded body — the
+                // form Prometheus accepts. (A GET body is ignored and a JSON
+                // POST body is rejected, so in both earlier variants the
+                // query parameters were silently dropped.)
+                let form_body = form_urlencoded::Serializer::new(String::new())
+                    .extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str())))
+                    .finish();
+                let mut builder = Request::builder()
+                    .method(Method::POST)
                     .uri(&url)
-                    .header(CONTENT_TYPE, "application/json")
-                    .body(Body::from(
-                        serde_json::to_vec(&params)
-                            .map_err(|e| IntegrationError::Unknown(e.to_string()))?,
-                    ))?;
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded");
+                if let Some(auth) = &auth {
+                    builder = builder.header(AUTHORIZATION, auth);
+                }
+                let request = builder.body(Body::from(form_body))?;
 
                 let response = client.request(request).await?;
 
@@ -320,26 +380,40 @@ impl PrometheusAdapter {
     }
 
     /// Scrape metrics from a target
+    /// Value for the `Authorization` header, if credentials are configured.
+    fn auth_header(&self) -> Option<String> {
+        self.auth.as_ref().map(|(user, pass)| {
+            format!("Basic {}", Base64Standard.encode(format!("{user}:{pass}")))
+        })
+    }
+
+    /// Scrape a single target's metrics endpoint and return the raw
+    /// text-format body.
     pub async fn scrape_target(&self, target: &ServiceTarget) -> IntegrationResult<String> {
         let url = format!(
             "{}://{}:{}/{}",
             target.scheme,
             target.address,
             target.port.as_ref().unwrap_or(&"9090".to_string()),
-            &target.metrics_path
+            target.metrics_path
         );
+        let auth = self.auth_header();
         let base = self.base.clone();
         let client = self.client.clone();
 
         base.execute_with_resilience(move || {
             let client = client.clone();
             let url = url.clone();
+            let auth = auth.clone();
             async move {
-                let request = Request::builder()
+                let mut builder = Request::builder()
                     .method(Method::GET)
                     .uri(&url)
-                    .header(USER_AGENT, "rustops-integration/1.0")
-                    .body(Body::empty())?;
+                    .header(USER_AGENT, "rustops-integration/1.0");
+                if let Some(auth) = &auth {
+                    builder = builder.header(AUTHORIZATION, auth);
+                }
+                let request = builder.body(Body::empty())?;
 
                 let response = client.request(request).await?;
 
@@ -366,17 +440,20 @@ impl PrometheusAdapter {
             url.push_str(&format!("?match[]={}", match_));
         }
 
+        let auth = self.auth_header();
         let base = self.base.clone();
         let client = self.client.clone();
 
         base.execute_with_resilience(move || {
             let client = client.clone();
             let url = url.clone();
+            let auth = auth.clone();
             async move {
-                let request = Request::builder()
-                    .method(Method::GET)
-                    .uri(&url)
-                    .body(Body::empty())?;
+                let mut builder = Request::builder().method(Method::GET).uri(&url);
+                if let Some(auth) = &auth {
+                    builder = builder.header(AUTHORIZATION, auth);
+                }
+                let request = builder.body(Body::empty())?;
 
                 let response = client.request(request).await?;
 
@@ -454,12 +531,12 @@ impl TelemetryCollector for PrometheusAdapter {
         &self,
         query: adapter::MetricQuery,
     ) -> IntegrationResult<Vec<adapter::Metric>> {
-        let prometheus_query = if query.step.is_some() {
+        let prometheus_query = if let Some(step) = query.step {
             self.query_range(
                 &query.metric_name,
                 query.start_time,
                 query.end_time,
-                &query.step.unwrap().to_string(),
+                &step.to_string(),
             )
             .await?
         } else {
@@ -572,32 +649,51 @@ impl TelemetryCollector for PrometheusAdapter {
 /// Alert evaluation result
 #[derive(Debug)]
 pub struct AlertEvaluation {
+    /// Name of the evaluated rule
     pub rule_name: String,
+    /// Rule expression
     pub expression: String,
+    /// Evaluation status
     pub status: AlertStatus,
+    /// When the alert became active
     pub active_at: Option<DateTime<Utc>>,
+    /// Alert labels
     pub labels: HashMap<String, String>,
+    /// Alert annotations
     pub annotations: HashMap<String, String>,
+    /// Metric data from evaluation
     pub metric_data: Option<PrometheusData>,
 }
 
+/// Alert status
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AlertStatus {
+    /// Alert is firing
     Firing,
+    /// Alert is pending activation
     Pending,
+    /// Alert is inactive
     Inactive,
+    /// Evaluation failed
     Error,
 }
 
 /// Service target for scraping
 #[derive(Debug, Clone)]
 pub struct ServiceTarget {
+    /// Target address
     pub address: String,
+    /// Target port
     pub port: Option<String>,
+    /// Target labels
     pub labels: HashMap<String, String>,
+    /// URL scheme (http or https)
     pub scheme: String,
+    /// Metrics endpoint path
     pub metrics_path: String,
+    /// Last successful scrape time
     pub last_scraped: Option<DateTime<Utc>>,
+    /// Last scrape error
     pub error: Option<String>,
 }
 
@@ -613,7 +709,6 @@ struct LabelNamesResponse {
 mod tests {
     use super::*;
     use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
-    use chrono::{DateTime, Utc};
 
     #[tokio::test]
     async fn test_prometheus_adapter_creation() {
@@ -716,5 +811,126 @@ mod tests {
     fn test_alert_status() {
         assert_ne!(AlertStatus::Firing, AlertStatus::Inactive);
         assert_eq!(AlertStatus::Pending, AlertStatus::Pending);
+    }
+}
+
+#[cfg(test)]
+mod auth_wire_tests {
+    use super::*;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn target_for(server_uri: &str) -> ServiceTarget {
+        let addr = server_uri.trim_start_matches("http://");
+        let (host, port) = addr.rsplit_once(':').expect("mock uri has a port");
+        ServiceTarget {
+            address: host.to_string(),
+            port: Some(port.to_string()),
+            last_scraped: None,
+            error: None,
+            labels: HashMap::new(),
+            scheme: "http".to_string(),
+            metrics_path: "metrics".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn basic_auth_is_sent_on_the_wire() {
+        // Regression: credentials were stored but never applied — scrapes
+        // against a protected Prometheus failed with a generic 401. The
+        // mock only matches when the Authorization header is present with
+        // the exact Basic value, so the test fails if the header is dropped.
+        let server = MockServer::start().await;
+        let expected = format!("Basic {}", Base64Standard.encode("prom-user:prom-pass"));
+
+        Mock::given(method("GET"))
+            .and(path("/metrics"))
+            .and(header("authorization", expected.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_string("# HELP up up\n"))
+            .mount(&server)
+            .await;
+
+        let adapter = PrometheusAdapter::new(
+            "auth-test",
+            server.uri(),
+            Some(("prom-user".to_string(), "prom-pass".to_string())),
+            CircuitBreakerConfig::default(),
+            RateLimiterConfig::default(),
+            RetryConfig::default(),
+        );
+
+        let body = adapter
+            .scrape_target(&target_for(&server.uri()))
+            .await
+            .expect("authed scrape must succeed against the mock");
+        assert!(body.contains("# HELP up"));
+    }
+
+    #[tokio::test]
+    async fn no_auth_header_when_no_credentials() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/metrics"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("up 1\n"))
+            .mount(&server)
+            .await;
+
+        let adapter = PrometheusAdapter::new(
+            "noauth-test",
+            server.uri(),
+            None::<(String, String)>,
+            CircuitBreakerConfig::default(),
+            RateLimiterConfig::default(),
+            RetryConfig::default(),
+        );
+
+        let body = adapter
+            .scrape_target(&target_for(&server.uri()))
+            .await
+            .expect("unauthenticated scrape must succeed against the mock");
+        assert!(body.contains("up 1"));
+    }
+}
+
+#[cfg(test)]
+mod query_wire_tests {
+    use super::*;
+    use wiremock::matchers::{body_string_contains, header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn query_params_travel_as_a_form_post_body() {
+        // Regression: this path sent its parameters as a GET body (ignored
+        // by Prometheus), then as a JSON POST body (rejected) — in both
+        // variants the query never reached the server. The mock only
+        // matches a POST with a urlencoded body containing the query.
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/query"))
+            .and(header("content-type", "application/x-www-form-urlencoded"))
+            .and(body_string_contains("query=up"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"status":"success","data":{"result_type":"vector","result":[]}}"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let adapter = PrometheusAdapter::new(
+            "query-test",
+            server.uri(),
+            None::<(&str, &str)>,
+            CircuitBreakerConfig::default(),
+            RateLimiterConfig::default(),
+            RetryConfig::default(),
+        );
+
+        let now = Utc::now();
+        let response = adapter
+            .query_range("up", now - chrono::Duration::minutes(5), now, "15")
+            .await
+            .expect("form-encoded query must succeed against the mock");
+        assert_eq!(response.status, "success");
+        assert_eq!(response.data.result_type, "vector");
     }
 }
