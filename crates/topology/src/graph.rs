@@ -5,19 +5,20 @@
 
 use crate::{
     events::{TopologyEvent, TopologyEventStore},
-    model::{DependencyEdge, DependencyType, ServiceNode},
+    model::{DependencyEdge, DependencyType, HealthStatus, ServiceNode, ServiceType},
     // Re-export these types from model for convenience
     // Note: ServiceType, HealthStatus, DependencyType, Protocol are defined in model.rs
 };
 use petgraph::{
+    algo::astar,
     stable_graph::NodeIndex,
-    visit::{Dfs, EdgeRef},
+    visit::{Dfs, EdgeRef, Walker},
     Directed, Graph,
 };
 use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Service topology graph with service nodes and dependency edges
 pub struct ServiceGraph {
@@ -55,10 +56,10 @@ impl ServiceGraph {
 
     /// Add or update a service node
     pub fn add_service(&mut self, service: ServiceNode) -> Result<()> {
-        let _node_id = match self.service_index.get(&service.id) {
+        let node_id = match self.service_index.get(&service.id) {
             Some(index) => {
                 // Update existing node
-                let node = self.graph.node_weight_mut(*index).unwrap();
+                let mut node = self.graph.node_weight_mut(*index).unwrap();
                 *node = service.clone();
                 *index
             }
@@ -247,7 +248,14 @@ impl ServiceGraph {
         Ok(())
     }
 
-    /// Find all services that depend on the given service (upstream dependencies)
+    /// Find all services that depend on the given service (upstream dependencies).
+    ///
+    /// "Upstream" means services that call *into* `service_id`, i.e. services
+    /// reachable by walking dependency edges backwards (incoming edges), not
+    /// forwards. A plain forward `Dfs` (as used by
+    /// `find_downstream_dependencies`) only ever finds nodes reachable via
+    /// outgoing edges, which for a leaf/sink service is nothing - it can
+    /// never find the callers.
     pub fn find_upstream_dependencies(&self, service_id: &ServiceId) -> Result<Vec<ServiceNode>> {
         let start_index =
             *self
@@ -258,16 +266,23 @@ impl ServiceGraph {
                     identifier: service_id.to_string(),
                 })?;
 
-        // Upstream = services that (transitively) depend on this one, i.e.
-        // everything reachable by walking edges in reverse.
-        let reversed = petgraph::visit::Reversed(&self.graph);
         let mut upstream = Vec::new();
-        let mut dfs = Dfs::new(&reversed, start_index);
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        visited.insert(start_index);
+        queue.push_back(start_index);
 
-        while let Some(node_index) = dfs.next(&reversed) {
-            if node_index != start_index {
-                if let Some(node) = self.graph.node_weight(node_index) {
-                    upstream.push(node.clone());
+        while let Some(node_index) = queue.pop_front() {
+            for edge_ref in self
+                .graph
+                .edges_directed(node_index, petgraph::Direction::Incoming)
+            {
+                let source = edge_ref.source();
+                if visited.insert(source) {
+                    if let Some(node) = self.graph.node_weight(source) {
+                        upstream.push(node.clone());
+                    }
+                    queue.push_back(source);
                 }
             }
         }
@@ -300,7 +315,16 @@ impl ServiceGraph {
         Ok(downstream)
     }
 
-    /// Calculate blast radius for a service
+    /// Calculate blast radius for a service.
+    ///
+    /// The blast radius of a service failing is the set of services that
+    /// *depend on it* (directly or transitively) and would therefore be
+    /// affected - i.e. everything reachable by walking dependency edges
+    /// backwards from `service_id`. The previous implementation walked
+    /// outgoing edges (what `service_id` depends on), so a sink/leaf service
+    /// such as a database - which nothing points away from - always came
+    /// back with zero affected services, even though upstream callers like
+    /// an API and frontend clearly are affected when the database goes down.
     pub fn calculate_blast_radius(
         &self,
         service_id: &ServiceId,
@@ -316,10 +340,11 @@ impl ServiceGraph {
                 })?;
 
         let mut affected_services = HashSet::new();
-        let _total_paths = 0;
+        let mut total_paths = 0;
         let mut hops_distribution = HashMap::new();
 
-        // BFS to find all services within max_hops
+        // BFS backwards (incoming edges) to find all services within max_hops
+        // that depend on `service_id`.
         let mut queue = VecDeque::new();
         queue.push_back((start_index, 0));
 
@@ -335,8 +360,7 @@ impl ServiceGraph {
                 }
             }
 
-            // Blast radius = services affected when this one fails, i.e. its
-            // (transitive) dependents — walk edges in REVERSE (incoming).
+            // Add callers (incoming edges) to queue
             for edge_ref in self
                 .graph
                 .edges_directed(node_index, petgraph::Direction::Incoming)
@@ -366,7 +390,14 @@ impl ServiceGraph {
         })
     }
 
-    /// Find the shortest path between two services
+    /// Find the shortest path between two services.
+    ///
+    /// Uses A* (equivalent to Dijkstra with a zero heuristic here) to get
+    /// both the cost *and* the actual node sequence in one pass. The
+    /// previous implementation only checked reachability via `dijkstra`
+    /// (which returns costs, not paths) and then fabricated a fake
+    /// "path" containing just the endpoints, silently dropping every
+    /// intermediate hop.
     pub fn find_shortest_path(
         &self,
         from: &ServiceId,
@@ -389,21 +420,20 @@ impl ServiceGraph {
                     identifier: to.to_string(),
                 })?;
 
-        // A* with a zero heuristic == Dijkstra, but it returns the actual
-        // node sequence rather than just distances.
-        let result = petgraph::algo::astar(
+        let result = astar(
             &self.graph,
             from_index,
             |node| node == to_index,
-            |_| 1,
-            |_| 0,
+            |_edge| 1,
+            |_node| 0,
         );
 
         match result {
-            Some((_cost, node_path)) => {
-                let service_path = node_path
+            Some((_cost, path)) => {
+                let service_path = path
                     .into_iter()
-                    .filter_map(|idx| self.graph.node_weight(idx).cloned())
+                    .filter_map(|idx| self.graph.node_weight(idx))
+                    .cloned()
                     .collect();
                 Ok(Some(service_path))
             }
@@ -415,7 +445,7 @@ impl ServiceGraph {
     pub fn find_circular_dependencies(&self) -> Result<Vec<Vec<ServiceNode>>> {
         let mut cycles = Vec::new();
         let mut visited = HashSet::new();
-        let _recursion_stack: HashSet<NodeIndex> = HashSet::new();
+        let mut recursion_stack: HashSet<NodeIndex> = HashSet::new();
 
         // Find all strongly connected components (SCCs)
         for node_index in self.graph.node_indices() {
@@ -524,7 +554,6 @@ pub struct BlastRadius {
 mod tests {
     use super::*;
     use crate::model::ServiceNode;
-    use crate::{HealthStatus, ServiceType};
     use chrono::Utc;
     use rustops_common::ServiceId;
 

@@ -9,13 +9,13 @@ use k8s_openapi::api::{
     core::v1::{Event, Node, Pod},
 };
 use kube::{
-    api::{Api, DeleteParams, ListParams, Patch, PatchParams},
+    api::{Api, DeleteParams, ListParams, Patch, PatchParams, WatchEvent},
     Client, Config,
 };
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::adapter::{
     ActionResult, BaseAdapter, InfraAction, InfrastructureMonitor, IntegrationKind,
@@ -25,25 +25,17 @@ use crate::adapter::{
 /// Kubernetes event types for enhanced monitoring
 #[derive(Debug, Clone)]
 pub enum KubernetesEvent {
-    /// PodAdded.
     PodAdded(Pod),
-    /// PodModified.
     PodModified(Pod),
-    /// PodDeleted.
     PodDeleted(String),
-    /// NodeAdded.
     NodeAdded(Node),
-    /// NodeModified.
     NodeModified(Node),
-    /// NodeDeleted.
     NodeDeleted(String),
-    /// Event.
     Event(Event),
-    /// DeploymentScaleChanged.
     DeploymentScaleChanged(String, i32),
 }
 use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
-use crate::{CircuitBreakerConfig, RateLimiterConfig};
+use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 
 /// Kubernetes adapter configuration
 #[derive(Debug, Clone)]
@@ -305,7 +297,7 @@ impl InfrastructureMonitor for KubernetesAdapter {
                             if let Some(cs) = status.container_statuses {
                                 for c in cs {
                                     if let Some(state) = c.state {
-                                        if let Some(_running) = state.running {
+                                        if let Some(running) = state.running {
                                             // Using a placeholder - in real implementation would get from metrics API
                                             memory_usage += 100 * 1024 * 1024; // 100MB placeholder
                                         }
@@ -525,7 +517,7 @@ impl crate::adapter::IntegrationAdapter for KubernetesAdapter {
             }
         }
 
-        let config = Config::infer().await.map_err(|e| {
+        let mut config = Config::infer().await.map_err(|e| {
             IntegrationError::Authentication(format!("Failed to load kubeconfig: {}", e))
         })?;
 
@@ -547,6 +539,7 @@ impl crate::adapter::IntegrationAdapter for KubernetesAdapter {
 mod tests {
     use super::*;
     use crate::adapter::IntegrationAdapter;
+    use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 
     #[test]
     fn test_kubernetes_config_defaults() {
@@ -612,6 +605,7 @@ mod tests {
 mod integration_tests {
     use super::*;
     use crate::adapter::IntegrationAdapter;
+    use tokio_test;
 
     #[tokio::test]
     #[ignore] // Requires k8s cluster
@@ -665,7 +659,7 @@ mod integration_tests {
         // Spawn a task to consume events
         let handle = tokio::spawn(async move {
             let mut count = 0;
-            while let Some(_event) = rx.recv().await {
+            while let Some(event) = rx.recv().await {
                 count += 1;
                 if count > 5 {
                     // Limit test duration

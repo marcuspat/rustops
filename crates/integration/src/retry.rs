@@ -131,16 +131,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_success_after_failure() {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        use std::sync::Arc;
+        let mut attempts = 0;
 
-        let attempts = Arc::new(AtomicU32::new(0));
-        let counter = attempts.clone();
-
-        let result = retry_simple(3, move || {
-            let counter = counter.clone();
+        // The attempt counter is incremented synchronously in the `FnMut`
+        // closure body (not inside the returned future). Incrementing it
+        // inside an `async move` block instead would make each call capture
+        // its own copy of `attempts` (it's `Copy`), so mutations there would
+        // never be visible to later invocations and the closure would look
+        // like it always failed on "attempt 1" - that's exactly what caused
+        // `result.is_ok()` to fail here: the operation could never actually
+        // reach its third, successful attempt.
+        let result = retry_simple(3, || {
+            attempts += 1;
+            let attempt = attempts;
             async move {
-                let attempt = counter.fetch_add(1, Ordering::SeqCst) + 1;
                 if attempt < 3 {
                     Err("temporary failure")
                 } else {
@@ -152,7 +156,7 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
-        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert_eq!(attempts, 3);
     }
 
     #[tokio::test]

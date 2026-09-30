@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::warn;
 
 /// Service node in the topology graph
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,10 +230,8 @@ impl DependencyEdge {
 /// Service type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[derive(Default)]
 pub enum ServiceType {
     /// Kubernetes Deployment
-    #[default]
     Deployment,
     /// Kubernetes StatefulSet
     StatefulSet,
@@ -253,10 +252,15 @@ impl std::fmt::Display for ServiceType {
     }
 }
 
+impl Default for ServiceType {
+    fn default() -> Self {
+        ServiceType::Deployment
+    }
+}
+
 /// Health status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[derive(Default)]
 pub enum HealthStatus {
     /// Service is healthy
     Healthy,
@@ -265,7 +269,6 @@ pub enum HealthStatus {
     /// Service is unhealthy
     Unhealthy,
     /// Health status is unknown
-    #[default]
     Unknown,
 }
 
@@ -280,13 +283,17 @@ impl std::fmt::Display for HealthStatus {
     }
 }
 
+impl Default for HealthStatus {
+    fn default() -> Self {
+        HealthStatus::Unknown
+    }
+}
+
 /// Dependency type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[derive(Default)]
 pub enum DependencyType {
     /// Service calls another service
-    #[default]
     Calls,
     /// Service reads from database/cache
     Reads,
@@ -313,13 +320,17 @@ impl std::fmt::Display for DependencyType {
     }
 }
 
+impl Default for DependencyType {
+    fn default() -> Self {
+        DependencyType::Calls
+    }
+}
+
 /// Protocol enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[derive(Default)]
 pub enum Protocol {
     /// HTTP protocol
-    #[default]
     Http,
     /// gRPC protocol
     Grpc,
@@ -334,6 +345,12 @@ impl std::fmt::Display for Protocol {
             Protocol::Grpc => write!(f, "grpc"),
             Protocol::Tcp => write!(f, "tcp"),
         }
+    }
+}
+
+impl Default for Protocol {
+    fn default() -> Self {
+        Protocol::Http
     }
 }
 
@@ -395,12 +412,6 @@ impl ServiceFactory {
 /// Service node builder
 pub struct ServiceNodeBuilder {
     service: ServiceNode,
-}
-
-impl Default for ServiceNodeBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ServiceNodeBuilder {

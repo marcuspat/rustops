@@ -49,7 +49,7 @@ impl RateLimiter {
         }
     }
 
-    /// The configuration this limiter was built with.
+    /// Get the configuration this rate limiter was created with
     pub fn config(&self) -> &RateLimiterConfig {
         &self.config
     }

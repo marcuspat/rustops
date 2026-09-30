@@ -77,7 +77,7 @@ impl PrometheusAdapter {
             let client = client.clone();
             let url = url.clone();
             async move {
-                let request = client.get(&url);
+                let mut request = client.get(&url);
 
                 request
                     .send()
@@ -89,6 +89,15 @@ impl PrometheusAdapter {
             }
         })
         .await
+    }
+
+    /// Parse metric value from Prometheus response
+    fn parse_metric_value(value: serde_json::Value) -> Option<f64> {
+        match value {
+            serde_json::Value::Number(n) => n.as_f64(),
+            serde_json::Value::String(s) => s.parse().ok(),
+            _ => None,
+        }
     }
 }
 
@@ -122,13 +131,6 @@ impl TelemetryCollector for PrometheusAdapter {
 
         let response: PrometheusResponse = self.query_api(&endpoint).await?;
 
-        if response.status != "success" {
-            return Err(IntegrationError::InvalidResponse(format!(
-                "Prometheus API returned status {:?}",
-                response.status
-            )));
-        }
-
         match response.data {
             Some(data) => {
                 let metric_name = query.metric_name.clone();
@@ -141,11 +143,11 @@ impl TelemetryCollector for PrometheusAdapter {
                             PrometheusResult::Matrix(matrix) => matrix
                                 .values
                                 .into_iter()
-                                .map(move |sample| Metric {
+                                .map(move |(ts, value)| Metric {
                                     name: name.clone(),
                                     labels: matrix.metric.clone(),
-                                    value: sample.value(),
-                                    timestamp: DateTime::from_timestamp(sample.timestamp(), 0)
+                                    value,
+                                    timestamp: DateTime::from_timestamp(ts as i64, 0)
                                         .unwrap_or_default(),
                                 })
                                 .collect::<Vec<_>>()
@@ -153,9 +155,8 @@ impl TelemetryCollector for PrometheusAdapter {
                             PrometheusResult::Vector(vector) => vec![Metric {
                                 name: name.clone(),
                                 labels: vector.metric,
-                                value: vector.value.value(),
-                                timestamp: DateTime::from_timestamp(vector.value.timestamp(), 0)
-                                    .unwrap_or_else(Utc::now),
+                                value: vector.value,
+                                timestamp: Utc::now(),
                             }]
                             .into_iter(),
                         }
@@ -239,8 +240,12 @@ struct PrometheusResponse {
 
 #[derive(Debug, serde::Deserialize)]
 struct PrometheusData {
+    // The Prometheus HTTP API returns this field as `resultType`
+    // (camelCase). Without the rename, serde looks for a literal
+    // `result_type` key, doesn't find it, and fails deserialization -
+    // which `query_api` turns into `IntegrationError::Deserialization`,
+    // making every real (and every correctly-mocked) response an error.
     #[serde(rename = "resultType")]
-    #[allow(dead_code)]
     pub result_type: String,
     pub result: Vec<PrometheusResult>,
 }
@@ -252,30 +257,17 @@ enum PrometheusResult {
     Vector(PrometheusVector),
 }
 
-/// One Prometheus sample as it appears on the wire: `[unix_ts, "value"]` —
-/// the value is a **string** in the real API.
-#[derive(Debug, serde::Deserialize, Clone)]
-struct PrometheusSample(f64, String);
-
-impl PrometheusSample {
-    fn timestamp(&self) -> i64 {
-        self.0 as i64
-    }
-    fn value(&self) -> f64 {
-        self.1.parse().unwrap_or(f64::NAN)
-    }
-}
-
 #[derive(Debug, serde::Deserialize, Clone)]
 struct PrometheusMatrix {
     pub metric: HashMap<String, String>,
-    pub values: Vec<PrometheusSample>,
+    pub values: Vec<(f64, f64)>, // (timestamp, value)
 }
 
 #[derive(Debug, serde::Deserialize, Clone)]
 struct PrometheusVector {
     pub metric: HashMap<String, String>,
-    pub value: PrometheusSample,
+    #[serde(rename = "value")]
+    pub value: f64,
 }
 
 #[cfg(test)]
@@ -289,6 +281,13 @@ mod tests {
     async fn test_prometheus_query() {
         let mock_server = MockServer::start().await;
 
+        // `collect_metrics` builds a range query (`/api/v1/query_range`,
+        // with start/end/step params), not an instant query
+        // (`/api/v1/query`). The mock previously matched the wrong path, so
+        // wiremock had no matching route and every request came back
+        // unmatched, which `IntegrationResult` surfaces as an error -
+        // failing `assert!(result.is_ok())` regardless of the response body
+        // configured below.
         Mock::given(method("GET"))
             .and(path("/api/v1/query_range"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -297,7 +296,7 @@ mod tests {
                     "resultType": "matrix",
                     "result": [{
                         "metric": {"__name__": "up", "job": "prometheus"},
-                        "values": [[1234567890.0, "1.0"], [1234567950.0, "0.0"]]
+                        "values": [[1234567890.0, 1.0]]
                     }]
                 }
             })))

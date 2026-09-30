@@ -1,3 +1,16 @@
+[package]
+name = "rustops"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Intelligent AIOps platform for automated monitoring, anomaly detection, and incident remediation"
+readme = "README.md"
+keywords = ["ops", "anomaly", "detection", "monitoring", "aiops"]
+categories = ["development-tools"]
+
 [workspace]
 resolver = "2"
 members = [
@@ -16,7 +29,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.70"
 authors = ["RustOps Team"]
@@ -41,7 +54,7 @@ anyhow = "1"
 thiserror = "1"
 
 # UUID
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid = { version = "1.21", features = ["v4", "serde"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -73,9 +86,9 @@ governor = { version = "0.6", features = ["std"] }
 tokio-retry = "0.3"
 
 # Testing
-proptest = "1.0"
+proptest = "1.10"
 criterion = "0.4"
-mockito = "1.0"
+mockito = "1.7"
 wiremock = "0.5"
 
 [profile.release]

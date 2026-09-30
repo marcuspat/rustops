@@ -36,9 +36,9 @@ pub enum TopologyEvent {
         /// Service ID
         service_id: ServiceId,
         /// Previous service info (for change detection)
-        previous_service: Option<Box<ServiceNode>>,
+        previous_service: Option<ServiceNode>,
         /// Updated service info
-        current_service: Box<ServiceNode>,
+        current_service: ServiceNode,
     },
     /// Dependency was added between services
     DependencyAdded {
@@ -117,27 +117,6 @@ impl TopologyEvent {
     /// Check if event is an error event
     pub fn is_error_event(&self) -> bool {
         matches!(self, TopologyEvent::TopologyError { .. })
-    }
-
-    /// All services an event involves — used for per-service indexing, so
-    /// dependency events are found from either endpoint.
-    pub fn involved_service_ids(&self) -> Vec<&ServiceId> {
-        match self {
-            TopologyEvent::ServiceAdded { service_id, .. }
-            | TopologyEvent::ServiceRemoved { service_id, .. }
-            | TopologyEvent::ServiceUpdated { service_id, .. } => vec![service_id],
-            TopologyEvent::DependencyAdded {
-                from_service_id,
-                to_service_id,
-                ..
-            }
-            | TopologyEvent::DependencyRemoved {
-                from_service_id,
-                to_service_id,
-                ..
-            } => vec![from_service_id, to_service_id],
-            _ => Vec::new(),
-        }
     }
 
     /// Get service ID if applicable
@@ -290,16 +269,22 @@ pub trait TopologyEventStore: Send + Sync {
 }
 
 /// In-memory event store implementation
+///
+/// The underlying storage is held behind `Arc`, so cloning an
+/// `InMemoryEventStore` produces another handle to the *same* store rather
+/// than an independent snapshot. This matters because the store is
+/// routinely cloned and handed to multiple collaborators (a `ServiceGraph`,
+/// a `DiscoveryManager`, an `EventEmitter`, ...) that are all expected to
+/// observe each other's writes - the event-sourcing pattern this type
+/// implements only works if "the event store" refers to one shared log,
+/// not a family of forked copies that silently diverge the moment any one
+/// of them stores an event.
 pub struct InMemoryEventStore {
     events: Arc<RwLock<Vec<TopologyEvent>>>,
     service_index: Arc<RwLock<HashMap<ServiceId, Vec<usize>>>>,
 }
 
 impl Clone for InMemoryEventStore {
-    /// Clones are HANDLES to the same store (shared state). The previous
-    /// implementation deep-copied a snapshot, so every component that
-    /// received a "clone" (event emitter, impact analyzer, ...) silently
-    /// wrote to its own disconnected store.
     fn clone(&self) -> Self {
         Self {
             events: Arc::clone(&self.events),
@@ -339,22 +324,44 @@ impl TopologyEventStore for InMemoryEventStore {
         let event_index = events.len();
         events.push(event.clone());
 
-        // Index the event under every service it involves (dependency
-        // events are looked up from either endpoint).
-        let involved: Vec<ServiceId> = event.involved_service_ids().into_iter().cloned().collect();
-        if !involved.is_empty() {
-            let mut service_index =
-                self.service_index
-                    .write()
-                    .map_err(|_| rustops_common::Error::Config {
-                        message: "Failed to acquire write lock for service index".to_string(),
-                    })?;
-            for service_id in involved {
-                service_index
-                    .entry(service_id)
-                    .or_insert_with(Vec::new)
-                    .push(event_index);
-            }
+        // Update service index. Service events (`ServiceAdded`/`Removed`/
+        // `Updated`) index under their own `service_id()`. Dependency
+        // events carry no single `service_id()` (it's `None` for them),
+        // but they still concern both endpoints of the edge - a caller
+        // asking "what happened to this service" via
+        // `get_service_events` needs to see dependency changes that
+        // touch it as either the source or the target, not just its own
+        // add/remove/update events.
+        let mut service_index =
+            self.service_index
+                .write()
+                .map_err(|_| rustops_common::Error::Config {
+                    message: "Failed to acquire write lock for service index".to_string(),
+                })?;
+        if let Some(service_id) = event.service_id() {
+            service_index
+                .entry(*service_id)
+                .or_insert_with(Vec::new)
+                .push(event_index);
+        } else if let TopologyEvent::DependencyAdded {
+            from_service_id,
+            to_service_id,
+            ..
+        }
+        | TopologyEvent::DependencyRemoved {
+            from_service_id,
+            to_service_id,
+            ..
+        } = &event
+        {
+            service_index
+                .entry(*from_service_id)
+                .or_insert_with(Vec::new)
+                .push(event_index);
+            service_index
+                .entry(*to_service_id)
+                .or_insert_with(Vec::new)
+                .push(event_index);
         }
 
         debug!("Stored topology event: {}", event.event_type());
@@ -426,7 +433,7 @@ impl TopologyEventStore for InMemoryEventStore {
                 message: "Failed to acquire read lock for events".to_string(),
             })?;
         let total = events.len();
-        let start = total.saturating_sub(count);
+        let start = if count >= total { 0 } else { total - count };
 
         Ok(events[start..].to_vec())
     }
@@ -474,7 +481,7 @@ impl TopologyEventStore for InMemoryEventStore {
                 TopologyEvent::ServiceUpdated {
                     current_service, ..
                 } => {
-                    if let Err(e) = graph.add_service((**current_service).clone()) {
+                    if let Err(e) = graph.add_service(current_service.clone()) {
                         warn!("Failed to replay service update event: {}", e);
                     }
                 }
@@ -652,8 +659,8 @@ impl EventEmitter {
     ) -> Result<()> {
         let event = TopologyEvent::ServiceUpdated {
             service_id,
-            previous_service: previous_service.map(Box::new),
-            current_service: Box::new(current_service),
+            previous_service,
+            current_service,
         };
         self.event_store.store_event(event)
     }
@@ -819,5 +826,28 @@ mod tests {
         assert_eq!(stats.total_events, 2);
         assert_eq!(stats.service_events, 1);
         assert_eq!(stats.dependency_events, 1);
+    }
+
+    #[tokio::test]
+    async fn test_clone_shares_underlying_store() {
+        // Cloning must hand back a handle to the SAME store, not an
+        // independent snapshot - this is what lets `TopologyService`
+        // share one event log across its graph, discovery manager, and
+        // impact analyzer by cloning the store into each of them.
+        let store = InMemoryEventStore::new();
+        let cloned = store.clone();
+
+        let service_id = ServiceId::new();
+        cloned
+            .store_event(TopologyEvent::ServiceAdded {
+                service_id,
+                service_name: Some("test".to_string()),
+                service_type: ServiceType::Deployment,
+            })
+            .unwrap();
+
+        // Written through the clone, but visible through the original.
+        assert_eq!(store.get_all_events().unwrap().len(), 1);
+        assert_eq!(store.get_service_events(&service_id).unwrap().len(), 1);
     }
 }

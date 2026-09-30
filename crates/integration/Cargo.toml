@@ -49,4 +49,5 @@ snap = "1"
 [dev-dependencies]
 tokio-test = "0.4"
 mockito = { workspace = true }
-wiremock = "0.6"
+wiremock = { workspace = true }
+tracing-subscriber = { workspace = true }

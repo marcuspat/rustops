@@ -112,6 +112,19 @@ pub enum LogLevel {
     Error,
 }
 
+impl LogLevel {
+    /// Returns the log level as an uppercase string slice (e.g. "INFO").
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LogLevel::Trace => "TRACE",
+            LogLevel::Debug => "DEBUG",
+            LogLevel::Info => "INFO",
+            LogLevel::Warn => "WARN",
+            LogLevel::Error => "ERROR",
+        }
+    }
+}
+
 impl std::str::FromStr for LogLevel {
     type Err = String;
 
