@@ -159,7 +159,7 @@ jobs:
         # not criterion's HTML report — emit bencher lines and capture them.
         run: |
           set -o pipefail
-          cargo bench --workspace -- --output-format bencher --save-baseline main | tee benchmark-output.txt
+          cargo bench --workspace --exclude rustops -- --output-format bencher --save-baseline main | tee benchmark-output.txt
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
