@@ -28,3 +28,7 @@ criterion = { workspace = true }
 [[bench]]
 name = "event_bench"
 harness = false
+
+[[bench]]
+name = "metric_bench"
+harness = false

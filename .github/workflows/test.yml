@@ -159,7 +159,11 @@ jobs:
         # not criterion's HTML report — emit bencher lines and capture them.
         run: |
           set -o pipefail
-          cargo bench --workspace --exclude rustops -- --output-format bencher --save-baseline main | tee benchmark-output.txt
+          # Named --bench targets ONLY: every broader selection (workspace,
+          # --exclude, even --benches) also runs the package's libtest
+          # unittest target, which rejects criterion's flags. rustops-common
+          # holds the workspace's only criterion benches.
+          cargo bench -p rustops-common --bench event_bench --bench metric_bench -- --output-format bencher --save-baseline main | tee benchmark-output.txt
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
