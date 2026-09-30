@@ -5,21 +5,29 @@
 # update. Unmaintained/unsound warnings for other transitive crates are
 # NOT ignored: they stay visible in the CI output.
 #
-# Root causes:
-# - rustls-webpki 0.101.7 + h2 0.3.27: pinned by the rustls 0.21 / hyper
-#   0.14 stack that reqwest 0.11 requires. Fix = migrate to reqwest 0.12
-#   (rustls 0.23 stack, webpki 0.103+, h2 0.4).
-# - protobuf 2.28.0: pinned by the `prometheus` crate. Fix = protobuf 3 /
-#   a prometheus release built on it.
+# Tracking issue for clearing all of these: #15 (reqwest 0.12 migration
+# and prometheus/protobuf 3).
+#
+# Root causes and severity posture:
+# - rustls-webpki 0.101.7 (RUSTSEC-2026-0098/0099/0104): certificate-path
+#   validation flaws in the TLS stack used for every outbound
+#   Prometheus/Kubernetes/ServiceNow call. Moderate severity, network-
+#   facing — the highest-priority items in #15. Pinned by rustls 0.21,
+#   which reqwest 0.11 requires; fixes ship in webpki 0.103+.
+# - h2 0.3.27 (RUSTSEC-2026-0258): request DoS, fixed in 0.4.16; 0.3 is
+#   pinned by hyper 0.14 via reqwest 0.11.
+# - protobuf 2.28.0 (RUSTSEC-2024-0437): unmaintained + DoS in the
+#   parser, fixed in 3.x; pinned by the `prometheus` crate (exposition
+#   path only, not exposed to untrusted input in this workspace).
 
 [advisories]
 ignore = [
-    # rustls-webpki 0.101.7 — fixes ship in 0.103.x; blocked on reqwest 0.12
+    # rustls-webpki 0.101.7 — fixes ship in 0.103.x; blocked on reqwest 0.12 (#15)
     "RUSTSEC-2026-0098",
     "RUSTSEC-2026-0099",
     "RUSTSEC-2026-0104",
-    # h2 0.3.27 — fixed in 0.4.16; 0.3 pinned by hyper 0.14 via reqwest 0.11
+    # h2 0.3.27 — fixed in 0.4.16; 0.3 pinned by hyper 0.14 via reqwest 0.11 (#15)
     "RUSTSEC-2026-0258",
-    # protobuf 2.28.0 — fixed in 3.x; pinned by the prometheus crate
+    # protobuf 2.28.0 — fixed in 3.x; pinned by the prometheus crate (#15)
     "RUSTSEC-2024-0437",
 ]

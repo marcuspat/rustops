@@ -52,7 +52,11 @@ impl AnomalyDetector for ZScoreDetector {
         }
 
         for (i, metric) in metrics.iter().enumerate() {
-            let values = &by_name[metric.name.as_str()];
+            // .get() not index[]: keeps this a skip instead of a panic if a
+            // future refactor ever filters the grouping pass.
+            let Some(values) = by_name.get(metric.name.as_str()) else {
+                continue;
+            };
             if values.len() < MIN_SAMPLES {
                 continue; // Not enough data for a meaningful baseline
             }

@@ -10,7 +10,7 @@ use crate::{
     // Note: ServiceType, HealthStatus, DependencyType, Protocol are defined in model.rs
 };
 use petgraph::{
-    algo::astar,
+    algo::{astar, kosaraju_scc},
     stable_graph::NodeIndex,
     visit::{Dfs, EdgeRef},
     Directed, Graph,
@@ -440,57 +440,32 @@ impl ServiceGraph {
         }
     }
 
-    /// Find all circular dependencies
+    /// Find all circular dependencies.
+    ///
+    /// A dependency cycle is a strongly connected component with more than
+    /// one node (mutual reachability), or a single node with a
+    /// self-dependency edge. Kosaraju SCC via petgraph — a tree or DAG
+    /// component with internal edges must NOT be reported.
     pub fn find_circular_dependencies(&self) -> Result<Vec<Vec<ServiceNode>>> {
         let mut cycles = Vec::new();
-        let mut visited = HashSet::new();
 
-        // Find weakly connected components, then test each for cycle
-        // edges (an edge between two members of the same component). This
-        // approximates SCC detection without a Tarjan pass.
-        for node_index in self.graph.node_indices() {
-            if !visited.contains(&node_index) {
-                let mut component = Vec::new();
-                let mut stack = vec![node_index];
-
-                while let Some(current) = stack.pop() {
-                    if visited.insert(current) {
-                        component.push(current);
-
-                        for neighbor in self.graph.neighbors(current) {
-                            if !visited.contains(&neighbor) {
-                                stack.push(neighbor);
-                            }
-                        }
-                    }
-                }
-
-                // If component has more than one node, it might contain a cycle
-                if component.len() > 1 {
-                    // Check if this component forms a cycle
-                    let mut has_cycle = false;
-                    let mut cycle_nodes = Vec::new();
-
-                    for &node in &component {
-                        for neighbor in self.graph.neighbors(node) {
-                            if component.contains(&neighbor) {
-                                has_cycle = true;
-                                cycle_nodes.push(node);
-                                break;
-                            }
-                        }
-                    }
-
-                    if has_cycle {
-                        let cycle_services = cycle_nodes
-                            .iter()
-                            .filter_map(|&idx| self.graph.node_weight(idx))
-                            .cloned()
-                            .collect();
-                        cycles.push(cycle_services);
-                    }
-                }
+        for scc in kosaraju_scc(&self.graph) {
+            let is_multi_node_cycle = scc.len() > 1;
+            let is_self_loop = scc.len() == 1
+                && self
+                    .graph
+                    .neighbors(scc[0])
+                    .any(|neighbor| neighbor == scc[0]);
+            if !is_multi_node_cycle && !is_self_loop {
+                continue;
             }
+
+            let cycle_services = scc
+                .iter()
+                .filter_map(|&idx| self.graph.node_weight(idx))
+                .cloned()
+                .collect();
+            cycles.push(cycle_services);
         }
 
         Ok(cycles)
@@ -739,5 +714,93 @@ mod tests {
             edge_type,
             metadata: HashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod circular_dependency_tests {
+    use chrono::Utc;
+
+    fn create_test_service(id: ServiceId, name: impl Into<String>) -> ServiceNode {
+        let now = Utc::now();
+        ServiceNode {
+            id,
+            name: Some(name.into()),
+            namespace: "default".to_string(),
+            cluster: "default".to_string(),
+            service_type: ServiceType::Deployment,
+            replicas: 1,
+            labels: HashMap::new(),
+            annotations: HashMap::new(),
+            health: HealthStatus::Healthy,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    use super::*;
+    use crate::model::{DependencyEdge, DependencyType, HealthStatus, ServiceType};
+
+    fn edge(from: ServiceId, to: ServiceId) -> DependencyEdge {
+        DependencyEdge::new(from, to, DependencyType::Calls)
+    }
+
+    #[test]
+    fn tree_dependency_graph_has_no_cycles() {
+        // Regression: the old component-based check reported any weakly
+        // connected component with an internal edge as a cycle, so this
+        // tree (A -> B, A -> C) was a false positive.
+        let mut graph = ServiceGraph::new(None);
+        let a = ServiceId::new();
+        let b = ServiceId::new();
+        let c = ServiceId::new();
+        graph.add_service(create_test_service(a, "a")).unwrap();
+        graph.add_service(create_test_service(b, "b")).unwrap();
+        graph.add_service(create_test_service(c, "c")).unwrap();
+        graph.add_dependency(a, b, edge(a, b)).unwrap();
+        graph.add_dependency(a, c, edge(a, c)).unwrap();
+
+        let cycles = graph.find_circular_dependencies().unwrap();
+        assert!(
+            cycles.is_empty(),
+            "a dependency tree must not be reported as circular: {cycles:?}"
+        );
+    }
+
+    #[test]
+    fn mutual_dependency_is_a_cycle() {
+        let mut graph = ServiceGraph::new(None);
+        let a = ServiceId::new();
+        let b = ServiceId::new();
+        graph.add_service(create_test_service(a, "a")).unwrap();
+        graph.add_service(create_test_service(b, "b")).unwrap();
+        graph.add_dependency(a, b, edge(a, b)).unwrap();
+        graph.add_dependency(b, a, edge(b, a)).unwrap();
+
+        let cycles = graph.find_circular_dependencies().unwrap();
+        assert_eq!(cycles.len(), 1, "A<->B must be reported as one cycle");
+        assert_eq!(cycles[0].len(), 2);
+    }
+
+    #[test]
+    fn longer_cycle_detected_and_tree_branch_not() {
+        // A -> B -> C -> A is a cycle; D hangs off A as a tree branch and
+        // must not be folded into the reported cycle.
+        let mut graph = ServiceGraph::new(None);
+        let a = ServiceId::new();
+        let b = ServiceId::new();
+        let c = ServiceId::new();
+        let d = ServiceId::new();
+        for (id, name) in [(a, "a"), (b, "b"), (c, "c"), (d, "d")] {
+            graph.add_service(create_test_service(id, name)).unwrap();
+        }
+        graph.add_dependency(a, b, edge(a, b)).unwrap();
+        graph.add_dependency(b, c, edge(b, c)).unwrap();
+        graph.add_dependency(c, a, edge(c, a)).unwrap();
+        graph.add_dependency(a, d, edge(a, d)).unwrap();
+
+        let cycles = graph.find_circular_dependencies().unwrap();
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0].len(), 3, "cycle is A,B,C; D is not in it");
     }
 }

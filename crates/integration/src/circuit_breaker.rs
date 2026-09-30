@@ -272,3 +272,42 @@ mod tests {
         assert!(matches!(result, Err(IntegrationError::CircuitBreakerOpen)));
     }
 }
+
+#[cfg(test)]
+mod half_open_cycle_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn half_open_failure_reopens_and_later_success_closes() {
+        let cb = CircuitBreaker::new(CircuitBreakerConfig {
+            error_threshold: 2,
+            success_threshold: 1,
+            timeout: Duration::from_millis(50),
+            ..Default::default()
+        });
+
+        // Closed -> Open at the failure threshold.
+        cb.report_failure().await;
+        cb.report_failure().await;
+        assert!(matches!(cb.state().await, CircuitState::Open));
+
+        // Inside the recovery window a failure keeps it Open.
+        cb.report_failure().await;
+        assert!(matches!(cb.state().await, CircuitState::Open));
+
+        // After the window the breaker transitions through HalfOpen; a
+        // failure while HalfOpen must re-open immediately.
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        cb.report_failure().await;
+        assert!(
+            matches!(cb.state().await, CircuitState::Open),
+            "half-open failure must re-open the breaker"
+        );
+
+        // After the window again, a success closes it.
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        cb.report_success().await;
+        assert!(matches!(cb.state().await, CircuitState::Closed));
+    }
+}

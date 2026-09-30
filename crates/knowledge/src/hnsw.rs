@@ -61,7 +61,14 @@ impl HNSWIndexer {
         Ok(())
     }
 
-    /// Search for the `limit` nearest entries with similarity >= `threshold`.
+    /// Search for up to `limit` entries with similarity >= `threshold`.
+    ///
+    /// This is an ANN index, not an exhaustive k-NN: the fetch window is an
+    /// over-fetch, and entries below `threshold` inside the window consume
+    /// slots without producing results — so a query can return fewer than
+    /// `limit` entries even when more qualifying entries exist beyond the
+    /// window. The entries that ARE returned are the nearest qualifying
+    /// ones the graph traversal reached, ordered by similarity.
     pub fn search(&self, query: &[f32], limit: usize, threshold: f32) -> Result<Vec<SearchResult>> {
         anyhow::ensure!(
             query.len() == self.dimensions,
@@ -80,28 +87,33 @@ impl HNSWIndexer {
         let ef_search = fetch * 4;
         let neighbours = self.index.search(query, fetch, ef_search);
 
-        let mut results = Vec::with_capacity(neighbours.len());
-        for n in neighbours {
-            let Some(id) = self.rev.get(n.d_id) else {
-                continue;
-            };
-            // Skip points whose caller id has since been re-indexed to a
-            // different internal point.
-            if self.ids.get(id) != Some(&n.d_id) {
-                continue;
-            }
-            // DistCosine returns 1 - cosine_similarity.
-            let similarity = 1.0 - n.distance;
-            if similarity >= threshold {
-                results.push(SearchResult {
+        // Keep live points above the threshold, order by similarity
+        // (descending), then cut at the limit: hnsw_rs does not guarantee
+        // its results are distance-sorted, so sorting here is what makes
+        // the truncation "nearest".
+        let mut results: Vec<SearchResult> = neighbours
+            .iter()
+            .filter_map(|n| {
+                let id = self.rev.get(n.d_id)?;
+                // Skip points whose caller id has since been re-indexed to a
+                // different internal point.
+                if self.ids.get(id) != Some(&n.d_id) {
+                    return None;
+                }
+                // DistCosine returns 1 - cosine_similarity.
+                let similarity = 1.0 - n.distance;
+                (similarity >= threshold).then(|| SearchResult {
                     id: id.clone(),
                     similarity,
-                });
-            }
-            if results.len() == limit {
-                break;
-            }
-        }
+                })
+            })
+            .collect();
+        results.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results.truncate(limit);
         Ok(results)
     }
 
@@ -151,8 +163,9 @@ mod tests {
         indexer.index("a", &[1.0, 0.0, 0.0]).unwrap();
         indexer.index("noise1", &[0.0, 1.0, 0.0]).unwrap();
         indexer.index("noise2", &[0.0, 0.0, 1.0]).unwrap();
-        // Re-index "a" far from its original direction.
-        indexer.index("a", &[0.1, 0.9, 0.0]).unwrap();
+        // Re-index "a" to a nearby but distinct direction (stale vector is
+        // still nearer the query than the live one).
+        indexer.index("a", &[0.9, 0.1, 0.0]).unwrap();
 
         // Query at "a"'s ORIGINAL direction: the stale point is the nearest
         // neighbour and gets filtered — "a" must still be returned via its
