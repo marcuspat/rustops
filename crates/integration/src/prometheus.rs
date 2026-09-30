@@ -8,97 +8,143 @@ use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
 use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use hyper::body::Bytes;
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
-use hyper::http::HeaderValue;
 use hyper::{Body, Client, Method, Request};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 // Prometheus API response types
+/// Raw Prometheus API response envelope
 #[derive(Debug, Deserialize)]
 pub struct PrometheusResponse {
+    /// Response status ("success" or "error")
     pub status: String,
+    /// Response payload
     pub data: PrometheusData,
+    /// Error message when status is "error"
     pub error: Option<String>,
 }
 
+/// Prometheus query result payload
 #[derive(Debug, Deserialize)]
 pub struct PrometheusData {
+    /// Result type (vector, matrix, scalar, or string)
     pub result_type: String,
+    /// Result series
     pub result: Vec<PrometheusMetric>,
 }
 
+/// Single metric series from a Prometheus response
 #[derive(Debug, Deserialize)]
 pub struct PrometheusMetric {
+    /// Metric labels
     pub metric: HashMap<String, String>,
+    /// Instant query sample [timestamp, value]
     pub value: Option<Vec<serde_json::Value>>,
+    /// Range query samples [timestamp, value]
     pub values: Option<Vec<Vec<serde_json::Value>>>,
 }
 
 // Query parameters
+/// Prometheus query parameters
 #[derive(Debug, Clone)]
 pub struct PrometheusQuery {
+    /// PromQL expression
     pub query: String,
+    /// Range query start time
     pub start_time: Option<DateTime<Utc>>,
+    /// Range query end time
     pub end_time: Option<DateTime<Utc>>,
+    /// Query resolution step
     pub step: Option<String>,
+    /// Evaluation timeout
     pub timeout: Option<String>,
 }
 
 // Alert configuration
+/// Prometheus alert rule
 #[derive(Debug, Clone)]
 pub struct AlertRule {
+    /// Rule name
     pub name: String,
+    /// PromQL alert expression
     pub expression: String,
+    /// Firing duration before alerting
     pub duration: String,
+    /// Alert labels
     pub labels: HashMap<String, String>,
+    /// Alert annotations
     pub annotations: HashMap<String, String>,
 }
 
 // Service discovery configuration
+/// Prometheus service discovery configuration
 #[derive(Debug, Clone)]
 pub struct ServiceDiscoveryConfig {
+    /// Kubernetes service discovery settings
     pub kubernetes_sd: Option<KubernetesSDConfig>,
+    /// Static scrape targets
     pub static_configs: Option<Vec<StaticTarget>>,
+    /// Relabeling rules
     pub relabel_configs: Option<Vec<RelabelConfig>>,
 }
 
+/// Kubernetes service discovery settings
 #[derive(Debug, Clone)]
 pub struct KubernetesSDConfig {
+    /// Namespaces to discover in
     pub namespaces: Vec<String>,
+    /// Label selectors for discovered resources
     pub selectors: HashMap<String, String>,
 }
 
+/// Static scrape target
 #[derive(Debug, Clone)]
 pub struct StaticTarget {
+    /// Target addresses
     pub targets: Vec<String>,
+    /// Labels attached to targets
     pub labels: HashMap<String, String>,
 }
 
+/// Relabeling rule
 #[derive(Debug, Clone)]
 pub struct RelabelConfig {
+    /// Source label names
     pub source_labels: Vec<String>,
+    /// Separator between source label values
     pub separator: Option<String>,
+    /// Regular expression to match
     pub regex: Option<String>,
+    /// Modulus for hashmod actions
     pub modulus: Option<u64>,
+    /// Replacement value
     pub replacement: String,
+    /// Relabel action to apply
     pub action: RelabelAction,
+    /// Target label name
     pub target_label: Option<String>,
 }
 
+/// Relabel action type
 #[derive(Debug, Clone)]
 pub enum RelabelAction {
+    /// Replace matching label values
     Replace,
+    /// Keep matching targets
     Keep,
+    /// Drop matching targets
     Drop,
+    /// Hash label values modulo a number
     HashMod,
+    /// Map labels to new names
     LabelMap,
+    /// Map metric labels to new names
     MetricLabelMap,
+    /// Drop matching labels
     LabelDrop,
+    /// Drop matching metric labels
     MetricLabelDrop,
 }
 
@@ -107,6 +153,7 @@ pub struct PrometheusAdapter {
     base: adapter::BaseAdapter,
     client: Client<hyper::client::HttpConnector>,
     base_url: String,
+    #[allow(dead_code)] // stub retained by rescue pass
     auth: Option<(String, String)>,
     headers: HashMap<String, String>,
 }
@@ -326,7 +373,7 @@ impl PrometheusAdapter {
             target.scheme,
             target.address,
             target.port.as_ref().unwrap_or(&"9090".to_string()),
-            &target.metrics_path
+            target.metrics_path
         );
         let base = self.base.clone();
         let client = self.client.clone();
@@ -454,12 +501,12 @@ impl TelemetryCollector for PrometheusAdapter {
         &self,
         query: adapter::MetricQuery,
     ) -> IntegrationResult<Vec<adapter::Metric>> {
-        let prometheus_query = if query.step.is_some() {
+        let prometheus_query = if let Some(step) = query.step {
             self.query_range(
                 &query.metric_name,
                 query.start_time,
                 query.end_time,
-                &query.step.unwrap().to_string(),
+                &step.to_string(),
             )
             .await?
         } else {
@@ -572,32 +619,51 @@ impl TelemetryCollector for PrometheusAdapter {
 /// Alert evaluation result
 #[derive(Debug)]
 pub struct AlertEvaluation {
+    /// Name of the evaluated rule
     pub rule_name: String,
+    /// Rule expression
     pub expression: String,
+    /// Evaluation status
     pub status: AlertStatus,
+    /// When the alert became active
     pub active_at: Option<DateTime<Utc>>,
+    /// Alert labels
     pub labels: HashMap<String, String>,
+    /// Alert annotations
     pub annotations: HashMap<String, String>,
+    /// Metric data from evaluation
     pub metric_data: Option<PrometheusData>,
 }
 
+/// Alert status
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AlertStatus {
+    /// Alert is firing
     Firing,
+    /// Alert is pending activation
     Pending,
+    /// Alert is inactive
     Inactive,
+    /// Evaluation failed
     Error,
 }
 
 /// Service target for scraping
 #[derive(Debug, Clone)]
 pub struct ServiceTarget {
+    /// Target address
     pub address: String,
+    /// Target port
     pub port: Option<String>,
+    /// Target labels
     pub labels: HashMap<String, String>,
+    /// URL scheme (http or https)
     pub scheme: String,
+    /// Metrics endpoint path
     pub metrics_path: String,
+    /// Last successful scrape time
     pub last_scraped: Option<DateTime<Utc>>,
+    /// Last scrape error
     pub error: Option<String>,
 }
 
@@ -613,7 +679,7 @@ struct LabelNamesResponse {
 mod tests {
     use super::*;
     use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
-    use chrono::{DateTime, Utc};
+
 
     #[tokio::test]
     async fn test_prometheus_adapter_creation() {

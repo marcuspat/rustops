@@ -93,6 +93,7 @@ pub struct TopologyService {
     /// Graph store for persistence
     graph_store: Option<Box<dyn GraphStore>>,
     /// Configuration
+    #[allow(dead_code)] // stub retained by rescue pass
     config: TopologyConfig,
 }
 
@@ -227,7 +228,7 @@ impl TopologyService {
 
     /// Load topology from storage
     pub async fn load_from_storage(&mut self) -> Result<()> {
-        if let Some(store) = &self.graph_store {
+        if let Some(_store) = &self.graph_store {
             // Clear current graph
             // Note: This would need implementation in ServiceGraph
 

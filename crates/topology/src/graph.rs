@@ -5,20 +5,20 @@
 
 use crate::{
     events::{TopologyEvent, TopologyEventStore},
-    model::{DependencyEdge, DependencyType, HealthStatus, ServiceNode, ServiceType},
+    model::{DependencyEdge, DependencyType, ServiceNode},
     // Re-export these types from model for convenience
     // Note: ServiceType, HealthStatus, DependencyType, Protocol are defined in model.rs
 };
 use petgraph::{
     algo::astar,
     stable_graph::NodeIndex,
-    visit::{Dfs, EdgeRef, Walker},
+    visit::{Dfs, EdgeRef},
     Directed, Graph,
 };
 use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// Service topology graph with service nodes and dependency edges
 pub struct ServiceGraph {
@@ -56,10 +56,10 @@ impl ServiceGraph {
 
     /// Add or update a service node
     pub fn add_service(&mut self, service: ServiceNode) -> Result<()> {
-        let node_id = match self.service_index.get(&service.id) {
+        let _node_id = match self.service_index.get(&service.id) {
             Some(index) => {
                 // Update existing node
-                let mut node = self.graph.node_weight_mut(*index).unwrap();
+                let node = self.graph.node_weight_mut(*index).unwrap();
                 *node = service.clone();
                 *index
             }
@@ -340,7 +340,7 @@ impl ServiceGraph {
                 })?;
 
         let mut affected_services = HashSet::new();
-        let mut total_paths = 0;
+        let _total_paths = 0;
         let mut hops_distribution = HashMap::new();
 
         // BFS backwards (incoming edges) to find all services within max_hops
@@ -445,7 +445,7 @@ impl ServiceGraph {
     pub fn find_circular_dependencies(&self) -> Result<Vec<Vec<ServiceNode>>> {
         let mut cycles = Vec::new();
         let mut visited = HashSet::new();
-        let mut recursion_stack: HashSet<NodeIndex> = HashSet::new();
+        let _recursion_stack: HashSet<NodeIndex> = HashSet::new();
 
         // Find all strongly connected components (SCCs)
         for node_index in self.graph.node_indices() {
@@ -553,7 +553,7 @@ pub struct BlastRadius {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::ServiceNode;
+    use crate::model::{HealthStatus, ServiceNode, ServiceType};
     use chrono::Utc;
     use rustops_common::ServiceId;
 

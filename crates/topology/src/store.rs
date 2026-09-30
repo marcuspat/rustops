@@ -6,7 +6,7 @@
 use crate::{
     error::{Error, Result},
     graph::ServiceGraph,
-    model::{DependencyEdge, HealthStatus, ServiceNode, ServiceType},
+    model::{DependencyEdge, ServiceNode},
 };
 use chrono::{DateTime, Utc};
 use rustops_common::ServiceId;
@@ -72,17 +72,24 @@ pub trait Transaction: Send + Sync {
 /// Query result from Neo4j
 #[derive(Debug, Clone)]
 pub struct QueryResult {
+    /// Column names returned by the query
     pub columns: Vec<String>,
+    /// Data rows, one value per column
     pub rows: Vec<Vec<serde_json::Value>>,
 }
 
 /// Graph statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphStatistics {
+    /// Total number of services in the graph
     pub total_services: usize,
+    /// Total number of dependencies in the graph
     pub total_dependencies: usize,
+    /// Timestamp of the last graph update
     pub last_updated: DateTime<Utc>,
+    /// Average degree across service nodes
     pub average_degree: f64,
+    /// Highest degree of any service node
     pub max_degree: usize,
 }
 
@@ -91,10 +98,13 @@ pub struct Neo4jStore {
     /// Connection URI
     uri: String,
     /// Username
+    #[allow(dead_code)] // stub retained by rescue pass
     username: String,
     /// Password
+    #[allow(dead_code)] // stub retained by rescue pass
     password: String,
     /// Pool (stubbed)
+    #[allow(dead_code)] // stub retained by rescue pass
     pool: Option<String>,
 }
 
@@ -353,7 +363,7 @@ impl GraphStore for Neo4jStore {
     async fn execute_query(
         &self,
         query: &str,
-        params: HashMap<String, serde_json::Value>,
+        _params: HashMap<String, serde_json::Value>,
     ) -> Result<QueryResult> {
         debug!("Executing Neo4j query: {}", query);
 
@@ -402,10 +412,17 @@ pub struct Neo4jTransaction {
 }
 
 impl Neo4jTransaction {
+    /// Create a new empty transaction
     pub fn new() -> Self {
         Self {
             queries: Vec::new(),
         }
+    }
+}
+
+impl Default for Neo4jTransaction {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -544,42 +561,19 @@ impl GraphService {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_neo4j_store_creation() {
-        let config = Neo4jConfig::default();
-        let store = Neo4jStore::new(config.uri, config.username, config.password);
-
-        assert!(store.connect().await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_graph_service_creation() {
-        // `MockGraphStore` returns `Ok` with empty data from every load
-        // method (no services, no dependencies, no errors). `GraphService::new`
-        // handles that gracefully - there is simply nothing to load into the
-        // graph - so construction genuinely succeeds. The original assertion
-        // (`is_err()`) assumed a real Neo4j instance was required and would
-        // fail without one, but that's not what this code path does: a
-        // store that legitimately has no data is not an error condition.
-        let store = Box::new(MockGraphStore::new());
-
-        let service = GraphService::new(store).await;
-        assert!(service.is_ok());
-        let service = service.unwrap();
-        assert_eq!(service.graph().service_count(), 0);
-    }
-}
-
 /// Mock store for testing
 pub struct MockGraphStore;
 
 impl MockGraphStore {
+    /// Create a new mock graph store
     pub fn new() -> Self {
         Self
+    }
+}
+
+impl Default for MockGraphStore {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -636,5 +630,35 @@ impl GraphStore for MockGraphStore {
             average_degree: 0.0,
             max_degree: 0,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_neo4j_store_creation() {
+        let config = Neo4jConfig::default();
+        let store = Neo4jStore::new(config.uri, config.username, config.password);
+
+        assert!(store.connect().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_graph_service_creation() {
+        // `MockGraphStore` returns `Ok` with empty data from every load
+        // method (no services, no dependencies, no errors). `GraphService::new`
+        // handles that gracefully - there is simply nothing to load into the
+        // graph - so construction genuinely succeeds. The original assertion
+        // (`is_err()`) assumed a real Neo4j instance was required and would
+        // fail without one, but that's not what this code path does: a
+        // store that legitimately has no data is not an error condition.
+        let store = Box::new(MockGraphStore::new());
+
+        let service = GraphService::new(store).await;
+        assert!(service.is_ok());
+        let service = service.unwrap();
+        assert_eq!(service.graph().service_count(), 0);
     }
 }

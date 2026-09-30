@@ -3,14 +3,12 @@
 use rustops_common::ServiceId;
 use rustops_topology::{
     discovery::DiscoveryManager,
-    events::{EventEmitter, EventStatistics, InMemoryEventStore},
+    events::InMemoryEventStore,
     graph::ServiceGraph,
     impact::ImpactAnalyzer,
     model::{DependencyEdge, DependencyType, ServiceNode, ServiceType},
-    TopologyService, TopologyServiceBuilder,
+    TopologyService,
 };
-use std::collections::HashMap;
-use tokio_test;
 
 #[tokio::test]
 async fn test_topology_service_end_to_end() {
@@ -151,7 +149,7 @@ async fn test_event_system() {
     use rustops_topology::events::TopologyEventStore;
 
     let event_store = InMemoryEventStore::new();
-    let mut emitter = rustops_topology::events::EventEmitter::new(Box::new(event_store.clone()));
+    let emitter = rustops_topology::events::EventEmitter::new(Box::new(event_store.clone()));
 
     // Test emitting events
     let service_id = ServiceId::new();
@@ -193,11 +191,10 @@ async fn test_discovery_manager() {
     manager.add_discovery(Box::new(mock_discovery));
 
     // Run discovery (will return empty for mock)
-    let result = manager
+    manager
         .discover_and_update(&mut ServiceGraph::new(None))
         .await
         .unwrap();
-    assert!(result.total_services_discovered >= 0);
 
     // Test available sources
     let sources = manager.available_sources();

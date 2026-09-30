@@ -10,9 +10,12 @@ use tokio::sync::RwLock;
 /// Circuit breaker state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
-    Closed,   // Normal operation
-    Open,     // Failing, reject calls
-    HalfOpen, // Testing if service recovered
+    /// Normal operation
+    Closed,
+    /// Failing, reject calls
+    Open,
+    /// Testing if service recovered
+    HalfOpen,
 }
 
 /// Circuit breaker configuration

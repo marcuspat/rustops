@@ -4,14 +4,13 @@
 //! Calculates blast radius, identifies critical paths, and assesses change risks.
 
 use crate::{
-    events::{TopologyEvent, TopologyEventStore},
+    events::TopologyEventStore,
     graph::ServiceGraph,
-    model::{DependencyEdge, DependencyType, HealthStatus, ServiceNode, ServiceType},
+    model::{HealthStatus, ServiceNode, ServiceType},
 };
 use rustops_common::{Result, ServiceId};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
-use tracing::{debug, error, info, warn};
+use tracing::info;
 
 /// Impact analysis result for a service change
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,9 +154,13 @@ pub struct AffectedService {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImpactSeverity {
+    /// Minor impact with limited disruption
     Low,
+    /// Moderate impact
     Medium,
+    /// Major impact
     High,
+    /// Severe, business-critical impact
     Critical,
 }
 
@@ -180,10 +183,15 @@ pub struct RiskAssessment {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RiskLevel {
+    /// No risk
     None,
+    /// Low risk
     Low,
+    /// Medium risk
     Medium,
+    /// High risk
     High,
+    /// Critical risk
     Critical,
 }
 
@@ -204,10 +212,15 @@ pub struct RiskFactor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RiskCategory {
+    /// Technical risk
     Technical,
+    /// Business risk
     Business,
+    /// Security risk
     Security,
+    /// Compliance risk
     Compliance,
+    /// Operational risk
     Operational,
 }
 
@@ -230,10 +243,15 @@ pub struct MitigationOpportunity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImplementationComplexity {
+    /// Trivial effort required
     Trivial,
+    /// Low effort required
     Low,
+    /// Medium effort required
     Medium,
+    /// High effort required
     High,
+    /// Complex, multi-team effort required
     Complex,
 }
 
@@ -256,10 +274,15 @@ pub struct ContainmentStrategy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainmentLevel {
+    /// No containment
     None,
+    /// Contained at the service level
     Service,
+    /// Contained at the namespace level
     Namespace,
+    /// Contained at the cluster level
     Cluster,
+    /// Contained at the region level
     Region,
 }
 
@@ -288,10 +311,15 @@ pub struct Recommendation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RecommendationType {
+    /// Action that must be taken immediately
     ImmediateAction,
+    /// Short-term fix
     ShortTermFix,
+    /// Long-term solution
     LongTermSolution,
+    /// Preventive measure
     Prevention,
+    /// Monitoring improvement
     Monitoring,
 }
 
@@ -299,10 +327,15 @@ pub enum RecommendationType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Priority {
+    /// Low priority
     Low,
+    /// Normal priority
     Normal,
+    /// High priority
     High,
+    /// Critical priority
     Critical,
+    /// Emergency priority
     Emergency,
 }
 
@@ -337,6 +370,7 @@ pub struct ImpactAnalyzer {
     /// Service graph for analysis
     graph: ServiceGraph,
     /// Event store for topology events
+    #[allow(dead_code)] // stub retained by rescue pass
     event_store: Option<Box<dyn TopologyEventStore>>,
     /// Configuration
     config: ImpactAnalyzerConfig,
@@ -563,7 +597,7 @@ impl ImpactAnalyzer {
         }
 
         // Sort by criticality
-        critical_paths.sort_by(|a, b| b.criticality_score.cmp(&a.criticality_score));
+        critical_paths.sort_by_key(|a| std::cmp::Reverse(a.criticality_score));
 
         Ok(critical_paths)
     }
@@ -597,10 +631,10 @@ impl ImpactAnalyzer {
                     .await?;
 
                 let downtime_estimate = self
-                    .estimate_service_downtime(&service, dependency_hops)
+                    .estimate_service_downtime(service, dependency_hops)
                     .await?;
 
-                let customer_impact = self.get_customer_impact_description(&service).await?;
+                let customer_impact = self.get_customer_impact_description(service).await?;
 
                 let mitigation = self
                     .check_mitigation_available(service_id, affected_service_id)
@@ -639,7 +673,7 @@ impl ImpactAnalyzer {
     /// Assess risk for the impact
     async fn assess_risk(
         &self,
-        service_id: &ServiceId,
+        _service_id: &ServiceId,
         blast_radius: &BlastRadiusAnalysis,
         critical_paths: &[CriticalPath],
         affected_services: &AffectedServices,
@@ -685,7 +719,7 @@ impl ImpactAnalyzer {
         }
 
         // Mitigation opportunities
-        if affected_services.critical.len() > 0 {
+        if !affected_services.critical.is_empty() {
             mitigation_opportunities.push(MitigationOpportunity {
                 description: "Implement circuit breakers for critical services".to_string(),
                 complexity: ImplementationComplexity::Medium,
@@ -737,9 +771,9 @@ impl ImpactAnalyzer {
     /// Generate recommendations for addressing the impact
     async fn generate_recommendations(
         &self,
-        service_id: &ServiceId,
+        _service_id: &ServiceId,
         blast_radius: &BlastRadiusAnalysis,
-        critical_paths: &[CriticalPath],
+        _critical_paths: &[CriticalPath],
         affected_services: &AffectedServices,
         risk_assessment: &RiskAssessment,
     ) -> Result<Vec<Recommendation>> {
@@ -838,7 +872,6 @@ impl ImpactAnalyzer {
     }
 
     /// Helper methods
-
     /// Calculate business impact score
     async fn calculate_business_impact(&self, _service_id: &ServiceId) -> Result<u8> {
         // This is a stub implementation
@@ -924,7 +957,7 @@ impl ImpactAnalyzer {
     }
 
     /// Count alternative paths
-    async fn count_alternative_paths(&self, from: &ServiceId, to: &ServiceId) -> Result<usize> {
+    async fn count_alternative_paths(&self, _from: &ServiceId, _to: &ServiceId) -> Result<usize> {
         // This would implement a path finding algorithm to count alternative routes
         // For now, return 0 (no alternatives found)
         Ok(0)
@@ -1027,7 +1060,7 @@ mod tests {
         let graph = ServiceGraph::new(None);
         let analyzer = ImpactAnalyzer::new(graph, None);
 
-        let service_id = ServiceId::new();
+        let _service_id = ServiceId::new();
         // This test would require actual graph data
         // For now, we just test the creation
         assert_eq!(analyzer.config.max_blast_radius_hops, 5);

@@ -1,23 +1,32 @@
-// RustOps Integration Bounded Context
-//
-// Implements the Integration layer following DDD principles with:
-// - Adapter pattern for unified interface
-// - Circuit breakers for external systems
-// - Rate limiting per integration
-// - Retry logic with exponential backoff
-// - Phase 1 integrations: Prometheus, Kubernetes, ServiceNow, PagerDuty, Slack
+//! RustOps Integration Bounded Context
+//!
+//! Implements the Integration layer following DDD principles with:
+//! - Adapter pattern for unified interface
+//! - Circuit breakers for external systems
+//! - Rate limiting per integration
+//! - Retry logic with exponential backoff
+//! - Phase 1 integrations: Prometheus, Kubernetes, ServiceNow, PagerDuty, Slack
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
+/// Adapter pattern for unified integration interfaces.
 pub mod adapter;
+/// Circuit breaker implementation for integration resilience.
 pub mod circuit_breaker;
+/// Infrastructure monitoring implementations (Kubernetes, AWS, etc.).
 pub mod infrastructure;
+/// ITSM integrations (ServiceNow, Jira, etc.).
 pub mod itsm;
+/// Prometheus integration adapter.
 pub mod prometheus;
+/// Rate limiting for integrations.
 pub mod rate_limiter;
+/// Resilience patterns (errors, health, outcomes) for integrations.
 pub mod resilience;
+/// Retry logic with exponential backoff.
 pub mod retry;
+/// Telemetry collector implementations (Prometheus, Datadog, etc.).
 pub mod telemetry;
 
 // Re-exports

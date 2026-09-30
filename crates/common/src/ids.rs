@@ -36,11 +36,15 @@ pub trait IdType:
 /// Macro to implement newtype ID wrapper
 macro_rules! impl_id {
     ($name:ident, $prefix:expr) => {
+        /// Type-safe identifier newtype wrapping a [`Uuid`]
         #[derive(
             Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
         )]
         #[serde(transparent)]
-        pub struct $name(Uuid);
+        pub struct $name(
+            /// The underlying UUID
+            Uuid,
+        );
 
         impl $name {
             /// Create a new random ID
@@ -132,8 +136,8 @@ mod tests {
 
     #[test]
     fn test_id_type_safety() {
-        let incident_id = IncidentId::new();
-        let alert_id = AlertId::new();
+        let _incident_id = IncidentId::new();
+        let _alert_id = AlertId::new();
         // This should not compile - type safety enforced at compile time
         // assert_eq!(incident_id, alert_id);
     }

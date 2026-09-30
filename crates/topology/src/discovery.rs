@@ -4,9 +4,9 @@
 //! Supports multiple discovery strategies including K8s API, service mesh, and metrics.
 
 use crate::{
-    events::{TopologyEvent, TopologyEventStore},
+    events::TopologyEventStore,
     graph::ServiceGraph,
-    model::{DependencyEdge, DependencyType, HealthStatus, Protocol, ServiceNode, ServiceType},
+    model::{DependencyEdge, DependencyType, HealthStatus, ServiceNode, ServiceType},
 };
 use chrono::Utc;
 use rustops_common::{Result, ServiceId};
@@ -317,7 +317,7 @@ impl KubernetesDiscovery {
                 replicas: daemonset
                     .status
                     .as_ref()
-                    .and_then(|s| Some(s.number_ready))
+                    .map(|s| s.number_ready)
                     .map(|r| r as u32)
                     .unwrap_or(0),
                 labels: daemonset
@@ -498,7 +498,7 @@ impl KubernetesDiscovery {
                 rustops_common::Error::network(format!("Failed to list network policies: {}", e))
             })?;
 
-        let mut edges = Vec::new();
+        let edges = Vec::new();
 
         for policy in policies.items {
             if !self.should_include_namespace(&policy.metadata.namespace) {
@@ -531,7 +531,7 @@ impl KubernetesDiscovery {
                 rustops_common::Error::network(format!("Failed to list configmaps: {}", e))
             })?;
 
-        let mut edges = Vec::new();
+        let edges = Vec::new();
 
         for configmap in configmaps.items {
             if !self.should_include_namespace(&configmap.metadata.namespace) {
@@ -557,7 +557,6 @@ impl KubernetesDiscovery {
     }
 
     /// Helper methods
-
     /// Check if namespace should be included
     fn should_include_namespace(&self, namespace: &Option<String>) -> bool {
         if let Some(ns) = namespace {
@@ -650,7 +649,7 @@ impl KubernetesDiscovery {
     /// Get pod health status
     fn get_pod_health(&self, pod: &k8s_openapi::api::core::v1::Pod) -> HealthStatus {
         if let Some(status) = &pod.status {
-            match status.phase.as_ref().map(|s| s.as_str()) {
+            match status.phase.as_deref() {
                 Some("Running") => HealthStatus::Healthy,
                 Some("Pending") | Some("Unknown") => HealthStatus::Degraded,
                 Some("Failed") => HealthStatus::Unhealthy,
@@ -683,6 +682,7 @@ impl KubernetesDiscovery {
     }
 
     /// Parse service URL from configmap value
+    #[allow(dead_code)] // stub retained by rescue pass
     fn parse_service_url(&self, value: &str) -> Option<String> {
         value
             .strip_prefix("http://")
@@ -692,10 +692,11 @@ impl KubernetesDiscovery {
     }
 
     /// Convert service URL to dependency edge
-    fn service_url_to_edge(&self, namespace: &str, service_url: &str) -> Option<DependencyEdge> {
+    #[allow(dead_code)] // stub retained by rescue pass
+    fn service_url_to_edge(&self, _namespace: &str, service_url: &str) -> Option<DependencyEdge> {
         // Parse service URL and convert to service ID
         // This is a simplified implementation
-        if let Some((_, service_name)) = service_url.split_once('.') {
+        if let Some((_, _service_name)) = service_url.split_once('.') {
             let target_id = ServiceId::new(); // Would be actual service ID
             let source_id = ServiceId::new(); // Would be actual service ID
 
@@ -722,11 +723,12 @@ impl KubernetesDiscovery {
     }
 
     /// Convert network policy to dependency edge
+    #[allow(dead_code)] // stub retained by rescue pass
     fn network_policy_to_edge(
         &self,
         namespace: &str,
         pod_selector: &std::collections::BTreeMap<String, String>,
-        ports: &[k8s_openapi::api::networking::v1::NetworkPolicyPort],
+        _ports: &[k8s_openapi::api::networking::v1::NetworkPolicyPort],
     ) -> Option<DependencyEdge> {
         // Simplified implementation - convert network policy to service dependency
         let target_id = ServiceId::new(); // Would be actual service ID
@@ -817,7 +819,7 @@ impl Discovery for PrometheusDiscovery {
         let mut edges = Vec::new();
 
         for result in response.data.result {
-            if let (Some(source), Some(dest)) = (
+            if let (Some(_source), Some(_dest)) = (
                 result.metric.get("source_service"),
                 result.metric.get("destination_service"),
             ) {
@@ -867,7 +869,7 @@ impl PrometheusDiscovery {
     async fn query_prometheus(&self, query: &str) -> Result<PrometheusResponse> {
         let response = self
             .client
-            .post(&format!("{}/api/v1/query", self.url))
+            .post(format!("{}/api/v1/query", self.url))
             .json(&serde_json::json!({
                 "query": query
             }))
@@ -907,6 +909,7 @@ pub struct DiscoveryManager {
     /// List of discovery implementations
     discoveries: Vec<Box<dyn Discovery>>,
     /// Event store for topology changes
+    #[allow(dead_code)] // stub retained by rescue pass
     event_store: Option<Box<dyn TopologyEventStore>>,
 }
 

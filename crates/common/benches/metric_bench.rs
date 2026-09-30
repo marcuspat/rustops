@@ -1,51 +1,50 @@
 //! Benchmarks for metric operations.
+//!
+//! Written against the public `Metric` API (`Metric::new`/`Metric::gauge`);
+//! the `testing::MetricBuilder` helper is `#[cfg(test)]`-gated and therefore
+//! not visible to bench targets.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use rustops_common::{testing::MetricBuilder, Metric};
+use rustops_common::{Metric, ServiceId};
 use std::collections::HashMap;
+
+fn sample_labels(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
 
 fn bench_metric_creation(c: &mut Criterion) {
     let mut group = c.benchmark_group("metric_creation");
 
-    group.bench_function("builder_pattern", |b| {
+    group.bench_function("constructor_with_labels", |b| {
         b.iter(|| {
-            MetricBuilder::new()
-                .name("cpu_usage".to_string())
-                .value(75.5)
-                .label("host", "server1")
-                .label("region", "us-west")
-                .build()
+            let labels = sample_labels(&[("host", "server1"), ("region", "us-west")]);
+            Metric::gauge("cpu_usage", 75.5, ServiceId::new(), labels)
         });
     });
 
-    group.bench_function("direct_construction", |b| {
-        b.iter(|| {
-            let mut labels = HashMap::new();
-            labels.insert("host".to_string(), "server1".to_string());
-            labels.insert("region".to_string(), "us-west".to_string());
-
-            Metric {
-                name: "cpu_usage".to_string(),
-                value: 75.5,
-                labels,
-                timestamp: chrono::Utc::now().timestamp(),
-            }
-        });
+    group.bench_function("constructor_empty_labels", |b| {
+        b.iter(|| Metric::gauge("cpu_usage", 75.5, ServiceId::new(), HashMap::new()));
     });
 
     group.finish();
 }
 
 fn bench_metric_serialization(c: &mut Criterion) {
-    let metric = MetricBuilder::new()
-        .name("test_metric".to_string())
-        .value(42.0)
-        .label("key1", "value1")
-        .label("key2", "value2")
-        .label("key3", "value3")
-        .label("key4", "value4")
-        .label("key5", "value5")
-        .build();
+    let metric = Metric::gauge(
+        "test_metric",
+        42.0,
+        ServiceId::new(),
+        sample_labels(&[
+            ("key1", "value1"),
+            ("key2", "value2"),
+            ("key3", "value3"),
+            ("key4", "value4"),
+            ("key5", "value5"),
+        ]),
+    );
 
     c.bench_function("metric_serialize_json", |b| {
         b.iter(|| serde_json::to_string(black_box(&metric)));
@@ -61,11 +60,10 @@ fn bench_metric_labels(c: &mut Criterion) {
     let mut group = c.benchmark_group("metric_labels");
 
     for label_count in [1, 5, 10, 20, 50].iter() {
-        let mut metric = MetricBuilder::new().name("test".to_string());
-        for i in 0..*label_count {
-            metric = metric.label(format!("key{}", i), format!("value{}", i));
-        }
-        let metric = metric.build();
+        let labels: HashMap<String, String> = (0..*label_count)
+            .map(|i| (format!("key{}", i), format!("value{}", i)))
+            .collect();
+        let metric = Metric::gauge("test", 1.0, ServiceId::new(), labels);
 
         group.bench_with_input(
             BenchmarkId::from_parameter(label_count),
@@ -85,13 +83,15 @@ fn bench_metric_aggregation(c: &mut Criterion) {
     let mut group = c.benchmark_group("metric_aggregation");
 
     for size in [10, 100, 1000, 10000].iter() {
+        let service_id = ServiceId::new();
         let metrics: Vec<Metric> = (0..*size)
             .map(|i| {
-                MetricBuilder::new()
-                    .name("cpu_usage".to_string())
-                    .value(50.0 + i as f64 * 0.1)
-                    .label("instance", format!("host-{}", i))
-                    .build()
+                Metric::gauge(
+                    "cpu_usage",
+                    50.0 + i as f64 * 0.1,
+                    service_id,
+                    sample_labels(&[("instance", "placeholder")]),
+                )
             })
             .collect();
 
