@@ -43,8 +43,14 @@ pub struct RemediationConfig {
     /// Maximum number of concurrent remediation actions
     pub max_concurrent_actions: usize,
 
-    /// Default timeout for workflows
+    /// Default timeout for workflows, in seconds. `0` means unbounded —
+    /// the natural operator encoding for "no timeout" that must not
+    /// instead fail every workflow instantly.
     pub default_workflow_timeout_secs: u64,
+
+    /// Maximum number of terminal workflow contexts kept in the engine's
+    /// map (for get_workflow_status) before the oldest are evicted.
+    pub workflow_history_retention: usize,
 
     /// Enable circuit breakers
     pub enable_circuit_breakers: bool,
@@ -73,6 +79,7 @@ impl Default for RemediationConfig {
         Self {
             max_concurrent_actions: 10,
             default_workflow_timeout_secs: 300,
+            workflow_history_retention: 256,
             enable_circuit_breakers: true,
             circuit_breaker_threshold: 3,
             circuit_breaker_reset_timeout_secs: 300,

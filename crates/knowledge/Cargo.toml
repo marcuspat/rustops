@@ -23,5 +23,4 @@ hnsw_rs = "0.3"
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 proptest = "1"
-criterion = "0.5"
 tempfile = "3"

@@ -68,11 +68,11 @@ impl HNSWIndexer {
     /// slots without producing results — so a query can return fewer than
     /// `limit` entries even when more qualifying entries exist beyond the
     /// window. The entries that ARE returned are the nearest qualifying
+    /// ones the graph traversal reached, ordered by similarity.
     ///
     /// Cost note: the fetch window grows by the superseded count on every
     /// query. When re-indexing dominates the workload, rebuild the index
     /// instead of re-indexing id by id.
-    /// ones the graph traversal reached, ordered by similarity.
     pub fn search(&self, query: &[f32], limit: usize, threshold: f32) -> Result<Vec<SearchResult>> {
         anyhow::ensure!(
             query.len() == self.dimensions,
@@ -83,9 +83,9 @@ impl HNSWIndexer {
 
         // Re-indexed ids leave superseded points in the graph (HNSW has no
         // deletion). Stale points can sit nearer the query than every live
-        // one, so over-fetch by the superseded count: among the nearest
-        // `limit + superseded` points at most `superseded` are stale, which
-        // guarantees the live entries still fit inside the result window.
+        // one, so over-fetch by the superseded count. This makes it likely
+        // the live entries fit in the window, not guaranteed: the HNSW
+        // traversal is approximate and may return fewer points than asked.
         let superseded = self.rev.len().saturating_sub(self.ids.len());
         let fetch = limit.saturating_add(superseded).max(1);
         let ef_search = fetch * 4;

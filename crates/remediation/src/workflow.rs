@@ -250,7 +250,14 @@ impl RemediationWorkflow for RestartServiceWorkflow {
         let timeout = std::time::Duration::from_secs(self.config.default_workflow_timeout_secs);
         let workflow_id = context.workflow_id.clone();
         let incident_id = context.incident.incident_id.clone();
-        let outcome = tokio::time::timeout(timeout, self.run(context)).await;
+        // timeout_secs == 0 means unbounded: tokio::time::timeout with a
+        // zero duration fires on the first poll, which would silently fail
+        // every workflow for an operator who set 0 expecting "no timeout".
+        let outcome = if self.config.default_workflow_timeout_secs == 0 {
+            Ok(self.run(context).await)
+        } else {
+            tokio::time::timeout(timeout, self.run(context)).await
+        };
         match outcome {
             Ok(result) => result,
             Err(_) => {
@@ -377,7 +384,14 @@ impl RemediationWorkflow for ScaleServiceWorkflow {
         let timeout = std::time::Duration::from_secs(self.config.default_workflow_timeout_secs);
         let workflow_id = context.workflow_id.clone();
         let incident_id = context.incident.incident_id.clone();
-        let outcome = tokio::time::timeout(timeout, self.run(context)).await;
+        // timeout_secs == 0 means unbounded: tokio::time::timeout with a
+        // zero duration fires on the first poll, which would silently fail
+        // every workflow for an operator who set 0 expecting "no timeout".
+        let outcome = if self.config.default_workflow_timeout_secs == 0 {
+            Ok(self.run(context).await)
+        } else {
+            tokio::time::timeout(timeout, self.run(context)).await
+        };
         match outcome {
             Ok(result) => result,
             Err(_) => {
@@ -414,6 +428,9 @@ pub struct WorkflowEngine {
     executor: Arc<dyn ActivityExecutor>,
     config: RemediationConfig,
     active_workflows: Arc<RwLock<std::collections::HashMap<String, WorkflowContext>>>,
+    /// Insertion order of workflow ids, for FIFO eviction of terminal
+    /// contexts past `config.workflow_history_retention`.
+    workflow_order: Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
 }
 
 impl WorkflowEngine {
@@ -423,6 +440,7 @@ impl WorkflowEngine {
             executor,
             config,
             active_workflows: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            workflow_order: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
         }
     }
 
@@ -464,11 +482,17 @@ impl WorkflowEngine {
             )));
         }
         workflows.insert(workflow_id.clone(), context.clone());
+        self.workflow_order
+            .lock()
+            .expect("workflow_order lock poisoned")
+            .push_back(workflow_id.clone());
 
         // Execute workflow (in production, this would be async)
         let _executor = self.executor.clone();
         let workflows_ref = self.active_workflows.clone();
         let workflow_id_clone = workflow_id.clone();
+        let order_ref = self.workflow_order.clone();
+        let retention = self.config.workflow_history_retention;
 
         tokio::spawn(async move {
             let result = workflow.execute(&mut context).await;
@@ -493,6 +517,30 @@ impl WorkflowEngine {
                         WorkflowState::Failed
                     };
                     *ctx = context;
+                }
+            }
+
+            // Evict oldest terminal contexts past the retention cap so the
+            // map cannot grow without bound over the process lifetime.
+            // Only a prefix of terminal entries is evicted; if the oldest
+            // is still in flight, eviction waits for the next completion.
+            if workflows.len() > retention {
+                let mut order = order_ref.lock().expect("workflow_order lock poisoned");
+                while workflows.len() > retention {
+                    let Some(oldest) = order.front() else { break };
+                    let oldest = oldest.clone();
+                    let terminal = workflows
+                        .get(&oldest)
+                        .map(|c| {
+                            !matches!(c.state, WorkflowState::Pending | WorkflowState::Running)
+                        })
+                        .unwrap_or(true);
+                    if terminal {
+                        order.pop_front();
+                        workflows.remove(&oldest);
+                    } else {
+                        break;
+                    }
                 }
             }
 
@@ -627,7 +675,7 @@ mod tests {
 #[cfg(test)]
 mod gate_round3_tests {
     use super::*;
-    use crate::activity::SimulatedActivityExecutor;
+    use crate::activity::{ActivityOutput, SimulatedActivityExecutor};
     use std::time::Duration;
 
     fn test_incident() -> IncidentContext {
@@ -653,12 +701,36 @@ mod gate_round3_tests {
         }
     }
 
+    /// Executor whose activities sleep, so the workflow can be driven past
+    /// a short timeout deterministically (1s timeout vs 30s sleeps).
+    struct SlowExecutor;
+
+    #[async_trait::async_trait]
+    impl ActivityExecutor for SlowExecutor {
+        async fn execute(&self, _input: ActivityInput) -> Result<ActivityOutput> {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Ok(ActivityOutput {
+                success: true,
+                data: None,
+                error: None,
+                execution_time_ms: 30_000,
+            })
+        }
+
+        fn activity_type(&self) -> &str {
+            "slow"
+        }
+
+        fn supports(&self, activity_type: &str) -> bool {
+            activity_type == "slow"
+        }
+    }
+
     #[tokio::test]
     async fn timeout_fails_result_and_marks_context_failed() {
-        let executor: Arc<dyn ActivityExecutor> = Arc::new(SimulatedActivityExecutor::new());
+        let executor: Arc<dyn ActivityExecutor> = Arc::new(SlowExecutor);
         let config = RemediationConfig {
-            // fire the timeout immediately
-            default_workflow_timeout_secs: 0,
+            default_workflow_timeout_secs: 1,
             ..Default::default()
         };
         let workflow = RestartServiceWorkflow::new(executor, config);
@@ -673,6 +745,28 @@ mod gate_round3_tests {
             result.message
         );
         assert!(matches!(context.state, WorkflowState::Failed));
+    }
+
+    #[tokio::test]
+    async fn timeout_zero_means_unbounded_not_instant_failure() {
+        // Regression: timeout(0s) fires on the first poll, so a config of 0
+        // used to fail every workflow instantly instead of meaning "no
+        // timeout". With the fast simulated executor an unbounded run
+        // completes successfully.
+        let executor: Arc<dyn ActivityExecutor> = Arc::new(SimulatedActivityExecutor::new());
+        let config = RemediationConfig {
+            default_workflow_timeout_secs: 0,
+            ..Default::default()
+        };
+        let workflow = RestartServiceWorkflow::new(executor, config);
+
+        let mut context = test_context();
+        let result = workflow.execute(&mut context).await.unwrap();
+        assert!(
+            result.success,
+            "timeout_secs=0 must mean unbounded, not instant timeout: {}",
+            result.message
+        );
     }
 
     /// Workflow whose execution blocks long enough to hold a concurrency
