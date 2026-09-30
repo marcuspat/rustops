@@ -17,6 +17,11 @@ pub struct HNSWIndexer {
     ids: HashMap<String, usize>,
     /// internal point id -> caller id
     rev: Vec<String>,
+    /// Test-only observability: the fetch window the most recent search
+    /// asked the ANN for — lets the integration seam (superseded count
+    /// feeding the over-fetch) be asserted deterministically.
+    #[cfg(test)]
+    last_fetch: std::sync::atomic::AtomicUsize,
 }
 
 /// A single search hit.
@@ -38,6 +43,8 @@ impl HNSWIndexer {
             dimensions,
             ids: HashMap::new(),
             rev: Vec::new(),
+            #[cfg(test)]
+            last_fetch: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -88,7 +95,10 @@ impl HNSWIndexer {
         // traversal is approximate and may return fewer points than asked.
         let superseded = self.rev.len().saturating_sub(self.ids.len());
         let fetch = fetch_size(limit, superseded);
-        let ef_search = fetch * 4;
+        let ef_search = fetch.saturating_mul(4);
+        #[cfg(test)]
+        self.last_fetch
+            .store(fetch, std::sync::atomic::Ordering::Relaxed);
         let neighbours = self.index.search(query, fetch, ef_search);
         let raw: Vec<(usize, f32)> = neighbours
             .iter()
@@ -334,5 +344,38 @@ mod fetch_and_filter_tests {
         let results = live_results(&[(9usize, 0.0f32), (0, 0.2)], &rev, &ids, 2, 0.0);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "x", "the valid hit survives the bad one");
+    }
+}
+
+#[cfg(test)]
+mod fetch_wiring_tests {
+    use super::*;
+
+    #[test]
+    fn search_widens_the_fetch_window_by_superseded_points() {
+        // The integration seam the re-index fix lives at: search() must
+        // feed rev.len() - ids.len() into the over-fetch. Observable via
+        // the test-only last_fetch counter — deterministic, no dependence
+        // on the randomised traversal.
+        let mut indexer = HNSWIndexer::new(3).unwrap();
+        indexer.index("a", &[1.0, 0.0, 0.0]).unwrap();
+        indexer.index("b", &[0.0, 1.0, 0.0]).unwrap();
+
+        let _ = indexer.search(&[1.0, 0.0, 0.0], 5, 0.0).unwrap();
+        assert_eq!(
+            indexer.last_fetch.load(std::sync::atomic::Ordering::Relaxed),
+            5,
+            "no re-indexes: fetch equals the limit"
+        );
+
+        // Two re-indexes of "a": two superseded points, window widens by two.
+        indexer.index("a", &[0.9, 0.1, 0.0]).unwrap();
+        indexer.index("a", &[0.8, 0.2, 0.0]).unwrap();
+        let _ = indexer.search(&[1.0, 0.0, 0.0], 5, 0.0).unwrap();
+        assert_eq!(
+            indexer.last_fetch.load(std::sync::atomic::Ordering::Relaxed),
+            7,
+            "fetch must be limit + superseded (5 + 2)"
+        );
     }
 }
