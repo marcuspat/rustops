@@ -172,6 +172,10 @@ jobs:
           output-file-path: benchmark-output.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
+          # The repo has no gh-pages branch yet; skip the initial fetch (the
+          # action's documented first-run setting) and let auto-push create
+          # it with the first dashboard commit.
+          skip-fetch-gh-pages: true
 
   # ========================================================================
   # Linting
