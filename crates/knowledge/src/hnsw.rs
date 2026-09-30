@@ -17,6 +17,11 @@ pub struct HNSWIndexer {
     ids: HashMap<String, usize>,
     /// internal point id -> caller id
     rev: Vec<String>,
+    /// Test-only observability: the fetch window the most recent search
+    /// asked the ANN for — lets the integration seam (superseded count
+    /// feeding the over-fetch) be asserted deterministically.
+    #[cfg(test)]
+    last_fetch: std::sync::atomic::AtomicUsize,
 }
 
 /// A single search hit.
@@ -38,6 +43,8 @@ impl HNSWIndexer {
             dimensions,
             ids: HashMap::new(),
             rev: Vec::new(),
+            #[cfg(test)]
+            last_fetch: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -87,38 +94,15 @@ impl HNSWIndexer {
         // the live entries fit in the window, not guaranteed: the HNSW
         // traversal is approximate and may return fewer points than asked.
         let superseded = self.rev.len().saturating_sub(self.ids.len());
-        let fetch = limit.saturating_add(superseded).max(1);
-        let ef_search = fetch * 4;
+        let fetch = fetch_size(limit, superseded);
+        let ef_search = fetch.saturating_mul(4);
+        #[cfg(test)]
+        self.last_fetch
+            .store(fetch, std::sync::atomic::Ordering::Relaxed);
         let neighbours = self.index.search(query, fetch, ef_search);
+        let raw: Vec<(usize, f32)> = neighbours.iter().map(|n| (n.d_id, n.distance)).collect();
 
-        // Keep live points above the threshold, order by similarity
-        // (descending), then cut at the limit: hnsw_rs does not guarantee
-        // its results are distance-sorted, so sorting here is what makes
-        // the truncation "nearest".
-        let mut results: Vec<SearchResult> = neighbours
-            .iter()
-            .filter_map(|n| {
-                let id = self.rev.get(n.d_id)?;
-                // Skip points whose caller id has since been re-indexed to a
-                // different internal point.
-                if self.ids.get(id) != Some(&n.d_id) {
-                    return None;
-                }
-                // DistCosine returns 1 - cosine_similarity.
-                let similarity = 1.0 - n.distance;
-                (similarity >= threshold).then(|| SearchResult {
-                    id: id.clone(),
-                    similarity,
-                })
-            })
-            .collect();
-        results.sort_by(|a, b| {
-            b.similarity
-                .partial_cmp(&a.similarity)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        results.truncate(limit);
-        Ok(results)
+        Ok(live_results(&raw, &self.rev, &self.ids, limit, threshold))
     }
 
     /// Index statistics.
@@ -129,6 +113,57 @@ impl HNSWIndexer {
             dimensions: self.dimensions,
         }
     }
+}
+
+/// How many points to ask the ANN for: the caller's limit plus one slot
+/// per superseded (re-indexed) point, so stale points crowding the front
+/// of the result window cannot evict live entries. Pure — unit-tested
+/// directly; this sizing is the load-bearing half of the re-index fix.
+fn fetch_size(limit: usize, superseded: usize) -> usize {
+    limit.saturating_add(superseded).max(1)
+}
+
+/// Filter raw ANN neighbour hits down to live results.
+///
+/// Pure function — extracted so the re-index regression coverage does not
+/// depend on hnsw_rs's traversal, which is randomised **per process**
+/// (in-process retries are correlated and cannot stabilise a graph query).
+/// Semantics:
+/// - a hit whose id has been re-indexed to a different point is dropped
+///   (the superseded/stale point);
+/// - a hit below `threshold` similarity (DistCosine: `1 - distance`) is
+///   dropped;
+/// - survivors are ordered by similarity descending (hnsw_rs does not
+///   guarantee distance order — the sort is what makes truncation
+///   "nearest") and cut at `limit`.
+fn live_results(
+    neighbours: &[(usize, f32)],
+    rev: &[String],
+    ids: &HashMap<String, usize>,
+    limit: usize,
+    threshold: f32,
+) -> Vec<SearchResult> {
+    let mut results: Vec<SearchResult> = neighbours
+        .iter()
+        .filter_map(|&(d_id, distance)| {
+            let id = rev.get(d_id)?;
+            if ids.get(id) != Some(&d_id) {
+                return None;
+            }
+            let similarity = 1.0 - distance;
+            (similarity >= threshold).then(|| SearchResult {
+                id: id.clone(),
+                similarity,
+            })
+        })
+        .collect();
+    results.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    results.truncate(limit);
+    results
 }
 
 /// Index statistics.
@@ -164,25 +199,86 @@ mod tests {
     }
 
     #[test]
-    fn test_reindexed_id_still_findable() {
-        // Regression: the stale point from a re-index can be nearer the
-        // query than the live one; the over-fetch must still surface the
-        // live entry for the id.
+    fn test_reindex_regression_filter_drops_stale_keeps_live() {
+        // The re-index regression, tested where it is deterministic: the
+        // filter. "a" was indexed at point 0, then re-indexed at point 3 —
+        // point 0 is now stale. The ANN returns the stale point as the
+        // exact nearest of the query; the filter must drop it and keep the
+        // live point, even at limit 1. (hnsw_rs's traversal is randomised
+        // per process, so this lives in the pure function, not a graph
+        // query — measured: some processes never surface the live point at
+        // limit 1 no matter how many in-process retries.)
+        let mut rev = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        rev.push("a".to_string()); // re-indexed point
+        let mut ids = HashMap::new();
+        ids.insert("a".to_string(), 3);
+        ids.insert("b".to_string(), 1);
+        ids.insert("c".to_string(), 2);
+
+        // Traversal returns stale "a" (distance 0.0), live "a" (distance
+        // 0.006), then the others.
+        let neighbours = vec![(0usize, 0.0f32), (3, 0.006), (1, 1.0), (2, 1.0)];
+        let results = live_results(&neighbours, &rev, &ids, 1, 0.0);
+
+        assert_eq!(results.len(), 1, "live 'a' survives at limit 1");
+        assert_eq!(results[0].id, "a");
+        assert!(
+            results[0].similarity < 1.0 - 1e-3,
+            "reported 'a' must be the live vector (~0.994), never the stale 1.0"
+        );
+    }
+
+    #[test]
+    fn test_live_results_orders_thresholds_and_truncates() {
+        let rev: Vec<String> = ["x", "y", "z"].map(String::from).to_vec();
+        let ids: HashMap<String, usize> = [("x", 0usize), ("y", 1), ("z", 2)]
+            .map(|(k, v)| (k.to_string(), v))
+            .into();
+
+        // Distances: x=0.1 (sim 0.9), y=0.5 (sim 0.5), z=0.9 (sim 0.1).
+        // Unsorted input, z below the 0.2 threshold: output must be
+        // similarity-descending with z dropped.
+        let neighbours = vec![(1usize, 0.5f32), (0, 0.1), (2, 0.9)];
+        let results = live_results(&neighbours, &rev, &ids, 3, 0.2);
+        let ids_out: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(
+            ids_out,
+            vec!["x", "y"],
+            "similarity-descending, z below threshold"
+        );
+        assert!((results[0].similarity - 0.9).abs() < 1e-6);
+
+        // Truncation keeps the most similar.
+        let truncated = live_results(&neighbours, &rev, &ids, 1, 0.0);
+        assert_eq!(truncated.len(), 1);
+        assert_eq!(truncated[0].id, "x");
+    }
+
+    #[test]
+    fn test_reindex_bookkeeping_moves_the_id() {
+        // What the graph-level API guarantees deterministically: the id
+        // remaps to a new point and the old point stays in the graph
+        // (HNSW has no deletion), i.e. the over-fetch input grows.
         let mut indexer = HNSWIndexer::new(3).unwrap();
         indexer.index("a", &[1.0, 0.0, 0.0]).unwrap();
         indexer.index("noise1", &[0.0, 1.0, 0.0]).unwrap();
         indexer.index("noise2", &[0.0, 0.0, 1.0]).unwrap();
-        // Re-index "a" to a nearby but distinct direction (stale vector is
-        // still nearer the query than the live one).
+        let old_point = *indexer.ids.get("a").expect("id mapped");
         indexer.index("a", &[0.9, 0.1, 0.0]).unwrap();
-
-        // Query at "a"'s ORIGINAL direction: the stale point is the nearest
-        // neighbour and gets filtered — "a" must still be returned via its
-        // live vector.
-        let results = indexer.search(&[1.0, 0.0, 0.0], 1, 0.0).unwrap();
+        let new_point = *indexer.ids.get("a").expect("id mapped");
+        assert_ne!(old_point, new_point, "re-index must move the id's point");
         assert!(
-            results.iter().any(|r| r.id == "a"),
-            "re-indexed id must remain findable: {results:?}"
+            indexer.rev.len() > indexer.ids.len(),
+            "the superseded point stays in the graph"
+        );
+
+        // The live direction finds the id through the real graph: the
+        // live point is the exact nearest neighbour of this query, which
+        // greedy descent reliably reaches.
+        let live = indexer.search(&[0.9, 0.1, 0.0], 1, 0.0).unwrap();
+        assert!(
+            live.iter().any(|r| r.id == "a"),
+            "re-indexed id must be findable at its live direction: {live:?}"
         );
     }
 
@@ -214,5 +310,80 @@ mod tests {
         assert_eq!(stats.num_elements, 2);
         assert_eq!(stats.live_elements, 2);
         assert_eq!(stats.dimensions, 2);
+    }
+}
+
+#[cfg(test)]
+mod fetch_and_filter_tests {
+    use super::*;
+
+    #[test]
+    fn fetch_size_over_fetches_by_superseded_and_floors_at_one() {
+        // The load-bearing sizing of the re-index fix: one extra slot per
+        // superseded point, never zero.
+        assert_eq!(fetch_size(1, 0), 1);
+        assert_eq!(
+            fetch_size(1, 3),
+            4,
+            "three re-indexes widen the window by three"
+        );
+        assert_eq!(fetch_size(5, 2), 7);
+        assert_eq!(fetch_size(0, 0), 1, "a zero limit still fetches one point");
+        assert_eq!(
+            fetch_size(usize::MAX, 1),
+            usize::MAX,
+            "saturating, no overflow"
+        );
+    }
+
+    #[test]
+    fn live_results_drops_out_of_range_point_ids() {
+        // The ANN returning a d_id beyond rev (a real inconsistency, e.g.
+        // after future index compaction) must be swallowed per-hit, not
+        // panic and not abort the whole result set.
+        let rev: Vec<String> = ["x"].map(String::from).to_vec();
+        let mut ids = HashMap::new();
+        ids.insert("x".to_string(), 0usize);
+
+        let results = live_results(&[(9usize, 0.0f32), (0, 0.2)], &rev, &ids, 2, 0.0);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "x", "the valid hit survives the bad one");
+    }
+}
+
+#[cfg(test)]
+mod fetch_wiring_tests {
+    use super::*;
+
+    #[test]
+    fn search_widens_the_fetch_window_by_superseded_points() {
+        // The integration seam the re-index fix lives at: search() must
+        // feed rev.len() - ids.len() into the over-fetch. Observable via
+        // the test-only last_fetch counter — deterministic, no dependence
+        // on the randomised traversal.
+        let mut indexer = HNSWIndexer::new(3).unwrap();
+        indexer.index("a", &[1.0, 0.0, 0.0]).unwrap();
+        indexer.index("b", &[0.0, 1.0, 0.0]).unwrap();
+
+        let _ = indexer.search(&[1.0, 0.0, 0.0], 5, 0.0).unwrap();
+        assert_eq!(
+            indexer
+                .last_fetch
+                .load(std::sync::atomic::Ordering::Relaxed),
+            5,
+            "no re-indexes: fetch equals the limit"
+        );
+
+        // Two re-indexes of "a": two superseded points, window widens by two.
+        indexer.index("a", &[0.9, 0.1, 0.0]).unwrap();
+        indexer.index("a", &[0.8, 0.2, 0.0]).unwrap();
+        let _ = indexer.search(&[1.0, 0.0, 0.0], 5, 0.0).unwrap();
+        assert_eq!(
+            indexer
+                .last_fetch
+                .load(std::sync::atomic::Ordering::Relaxed),
+            7,
+            "fetch must be limit + superseded (5 + 2)"
+        );
     }
 }
