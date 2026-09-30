@@ -3,6 +3,13 @@
 //! Written against the public `Metric` API (`Metric::new`/`Metric::gauge`);
 //! the `testing::MetricBuilder` helper is `#[cfg(test)]`-gated and therefore
 //! not visible to bench targets.
+//!
+//! Declared in `Cargo.toml` as `[[bench]] harness = false` (a criterion
+//! target): CI invokes it by name — broader cargo selections also run the
+//! crate's libtest unittest target, which rejects criterion's flags. The
+//! criterion groups here are namespaced `metric_*` so the shared
+//! `--save-baseline main` namespace cannot collide with `event_bench`'s
+//! `event_*` groups.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use rustops_common::{Metric, ServiceId};
