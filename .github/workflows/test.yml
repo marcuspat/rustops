@@ -143,6 +143,10 @@ jobs:
     name: Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # auto-push publishes the dashboard to gh-pages; the default
+    # GITHUB_TOKEN is read-only, which 403s exactly that push.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
