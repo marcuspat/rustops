@@ -841,10 +841,7 @@ mod auth_wire_tests {
         // mock only matches when the Authorization header is present with
         // the exact Basic value, so the test fails if the header is dropped.
         let server = MockServer::start().await;
-        let expected = format!(
-            "Basic {}",
-            Base64Standard.encode("prom-user:prom-pass")
-        );
+        let expected = format!("Basic {}", Base64Standard.encode("prom-user:prom-pass"));
 
         Mock::given(method("GET"))
             .and(path("/metrics"))
@@ -911,16 +908,11 @@ mod query_wire_tests {
 
         Mock::given(method("POST"))
             .and(path("/api/v1/query"))
-            .and(header(
-                "content-type",
-                "application/x-www-form-urlencoded",
-            ))
+            .and(header("content-type", "application/x-www-form-urlencoded"))
             .and(body_string_contains("query=up"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_string(
-                    r#"{"status":"success","data":{"result_type":"vector","result":[]}}"#,
-                ),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"status":"success","data":{"result_type":"vector","result":[]}}"#,
+            ))
             .mount(&server)
             .await;
 
