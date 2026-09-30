@@ -498,8 +498,10 @@ impl WorkflowEngine {
             let result = workflow.execute(&mut context).await;
 
             // Write the whole mutated context back into the map — state,
-            // history and metadata — not just the terminal state, so
-            // get_workflow_status reports real progress even when execute()
+            // history and metadata — not just the terminal state. Note the
+            // write-back lands at termination: during the run the stored
+            // entry still reads Pending, so
+            // get_workflow_status reports the run only once execute()
             // timed out (its RemediationResult carries success=false but the
             // local context mutations were the only record of the steps).
             // A context cancelled while running keeps state=Cancelled but

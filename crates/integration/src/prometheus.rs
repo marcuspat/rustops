@@ -7,8 +7,10 @@ use crate::adapter::{self, IntegrationAdapter, TelemetryCollector};
 use crate::resilience::{HealthStatus, IntegrationError, IntegrationResult};
 use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 use async_trait::async_trait;
+use base64::engine::general_purpose::STANDARD as Base64Standard;
+use base64::Engine as _;
 use chrono::{DateTime, Utc};
-use hyper::header::{CONTENT_TYPE, USER_AGENT};
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use hyper::{Body, Client, Method, Request};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -153,7 +155,9 @@ pub struct PrometheusAdapter {
     base: adapter::BaseAdapter,
     client: Client<hyper::client::HttpConnector>,
     base_url: String,
-    #[allow(dead_code)] // stub retained by rescue pass
+    /// Basic-auth credentials, sent on every request. Populated but
+    /// historically never applied — scrapes against a protected Prometheus
+    /// failed with a generic 401 instead of authenticating.
     auth: Option<(String, String)>,
     headers: HashMap<String, String>,
 }
@@ -221,22 +225,27 @@ impl PrometheusAdapter {
         }
 
         let params_clone = params.clone();
+        let auth = self.auth_header();
         let base = self.base.clone();
         let client = self.client.clone();
 
         base.execute_with_resilience(move || {
             let client = client.clone();
             let url = url.clone();
+            let auth = auth.clone();
             let params = params_clone.clone();
             async move {
-                let request = Request::builder()
+                let mut builder = Request::builder()
                     .method(Method::GET)
                     .uri(&url)
-                    .header(CONTENT_TYPE, "application/json")
-                    .body(Body::from(
-                        serde_json::to_vec(&params)
-                            .map_err(|e| IntegrationError::Unknown(e.to_string()))?,
-                    ))?;
+                    .header(CONTENT_TYPE, "application/json");
+                if let Some(auth) = &auth {
+                    builder = builder.header(AUTHORIZATION, auth);
+                }
+                let request = builder.body(Body::from(
+                    serde_json::to_vec(&params)
+                        .map_err(|e| IntegrationError::Unknown(e.to_string()))?,
+                ))?;
 
                 let response = client.request(request).await?;
 
@@ -367,6 +376,15 @@ impl PrometheusAdapter {
     }
 
     /// Scrape metrics from a target
+    /// Value for the `Authorization` header, if credentials are configured.
+    fn auth_header(&self) -> Option<String> {
+        self.auth.as_ref().map(|(user, pass)| {
+            format!("Basic {}", Base64Standard.encode(format!("{user}:{pass}")))
+        })
+    }
+
+    /// Scrape a single target's metrics endpoint and return the raw
+    /// text-format body.
     pub async fn scrape_target(&self, target: &ServiceTarget) -> IntegrationResult<String> {
         let url = format!(
             "{}://{}:{}/{}",
@@ -375,18 +393,23 @@ impl PrometheusAdapter {
             target.port.as_ref().unwrap_or(&"9090".to_string()),
             target.metrics_path
         );
+        let auth = self.auth_header();
         let base = self.base.clone();
         let client = self.client.clone();
 
         base.execute_with_resilience(move || {
             let client = client.clone();
             let url = url.clone();
+            let auth = auth.clone();
             async move {
-                let request = Request::builder()
+                let mut builder = Request::builder()
                     .method(Method::GET)
                     .uri(&url)
-                    .header(USER_AGENT, "rustops-integration/1.0")
-                    .body(Body::empty())?;
+                    .header(USER_AGENT, "rustops-integration/1.0");
+                if let Some(auth) = &auth {
+                    builder = builder.header(AUTHORIZATION, auth);
+                }
+                let request = builder.body(Body::empty())?;
 
                 let response = client.request(request).await?;
 
@@ -413,17 +436,20 @@ impl PrometheusAdapter {
             url.push_str(&format!("?match[]={}", match_));
         }
 
+        let auth = self.auth_header();
         let base = self.base.clone();
         let client = self.client.clone();
 
         base.execute_with_resilience(move || {
             let client = client.clone();
             let url = url.clone();
+            let auth = auth.clone();
             async move {
-                let request = Request::builder()
-                    .method(Method::GET)
-                    .uri(&url)
-                    .body(Body::empty())?;
+                let mut builder = Request::builder().method(Method::GET).uri(&url);
+                if let Some(auth) = &auth {
+                    builder = builder.header(AUTHORIZATION, auth);
+                }
+                let request = builder.body(Body::empty())?;
 
                 let response = client.request(request).await?;
 
