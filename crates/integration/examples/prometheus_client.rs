@@ -11,9 +11,8 @@ use chrono::{Duration, Utc};
 use rustops_integration::{
     adapter::{IntegrationAdapter, MetricQuery, TelemetryCollector, TelemetryEvent},
     prometheus::{
-        AlertRule, AlertStatus, KubernetesSDConfig, PrometheusAdapter,
-        RelabelAction, RelabelConfig, ServiceDiscoveryConfig,
-        StaticTarget,
+        AlertRule, AlertStatus, KubernetesSDConfig, PrometheusAdapter, RelabelAction,
+        RelabelConfig, ServiceDiscoveryConfig, StaticTarget,
     },
     CircuitBreakerConfig, RateLimiterConfig, RetryConfig,
 };
@@ -259,4 +258,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n✅ Example completed successfully!");
     Ok(())
 }
-

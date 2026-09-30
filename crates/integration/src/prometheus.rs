@@ -680,7 +680,6 @@ mod tests {
     use super::*;
     use crate::{CircuitBreakerConfig, RateLimiterConfig, RetryConfig};
 
-
     #[tokio::test]
     async fn test_prometheus_adapter_creation() {
         let adapter = PrometheusAdapter::new(

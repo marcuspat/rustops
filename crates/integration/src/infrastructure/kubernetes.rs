@@ -548,7 +548,6 @@ mod tests {
     use super::*;
     use crate::adapter::IntegrationAdapter;
 
-
     #[test]
     fn test_kubernetes_config_defaults() {
         let config = KubernetesConfig::default();

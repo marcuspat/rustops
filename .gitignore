@@ -50,3 +50,6 @@ tmp/
 temp/
 *.tmp
 rustops/
+
+# Keep cargo-audit config tracked (.* above would ignore it)
+!.cargo
