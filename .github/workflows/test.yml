@@ -172,9 +172,12 @@ jobs:
           output-file-path: benchmark-output.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
-          # The repo has no gh-pages branch yet; skip the initial fetch (the
-          # action's documented first-run setting) and let auto-push create
-          # it with the first dashboard commit.
+          # ONE-SHOT BOOTSTRAP: this repo has no gh-pages branch yet, and
+          # the action's documented no-branch setting skips the initial
+          # fetch while auto-push creates the branch with the first
+          # dashboard commit. Remove this flag once that first run
+          # succeeds — with the branch present, skipping the fetch would
+          # rebuild the dashboard from one run's data instead of appending.
           skip-fetch-gh-pages: true
 
   # ========================================================================

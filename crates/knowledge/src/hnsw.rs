@@ -90,35 +90,12 @@ impl HNSWIndexer {
         let fetch = limit.saturating_add(superseded).max(1);
         let ef_search = fetch * 4;
         let neighbours = self.index.search(query, fetch, ef_search);
-
-        // Keep live points above the threshold, order by similarity
-        // (descending), then cut at the limit: hnsw_rs does not guarantee
-        // its results are distance-sorted, so sorting here is what makes
-        // the truncation "nearest".
-        let mut results: Vec<SearchResult> = neighbours
+        let raw: Vec<(usize, f32)> = neighbours
             .iter()
-            .filter_map(|n| {
-                let id = self.rev.get(n.d_id)?;
-                // Skip points whose caller id has since been re-indexed to a
-                // different internal point.
-                if self.ids.get(id) != Some(&n.d_id) {
-                    return None;
-                }
-                // DistCosine returns 1 - cosine_similarity.
-                let similarity = 1.0 - n.distance;
-                (similarity >= threshold).then(|| SearchResult {
-                    id: id.clone(),
-                    similarity,
-                })
-            })
+            .map(|n| (n.d_id, n.distance))
             .collect();
-        results.sort_by(|a, b| {
-            b.similarity
-                .partial_cmp(&a.similarity)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        results.truncate(limit);
-        Ok(results)
+
+        Ok(live_results(&raw, &self.rev, &self.ids, limit, threshold))
     }
 
     /// Index statistics.
@@ -129,6 +106,49 @@ impl HNSWIndexer {
             dimensions: self.dimensions,
         }
     }
+}
+
+/// Filter raw ANN neighbour hits down to live results.
+///
+/// Pure function — extracted so the re-index regression coverage does not
+/// depend on hnsw_rs's traversal, which is randomised **per process**
+/// (in-process retries are correlated and cannot stabilise a graph query).
+/// Semantics:
+/// - a hit whose id has been re-indexed to a different point is dropped
+///   (the superseded/stale point);
+/// - a hit below `threshold` similarity (DistCosine: `1 - distance`) is
+///   dropped;
+/// - survivors are ordered by similarity descending (hnsw_rs does not
+///   guarantee distance order — the sort is what makes truncation
+///   "nearest") and cut at `limit`.
+fn live_results(
+    neighbours: &[(usize, f32)],
+    rev: &[String],
+    ids: &HashMap<String, usize>,
+    limit: usize,
+    threshold: f32,
+) -> Vec<SearchResult> {
+    let mut results: Vec<SearchResult> = neighbours
+        .iter()
+        .filter_map(|&(d_id, distance)| {
+            let id = rev.get(d_id)?;
+            if ids.get(id) != Some(&d_id) {
+                return None;
+            }
+            let similarity = 1.0 - distance;
+            (similarity >= threshold).then(|| SearchResult {
+                id: id.clone(),
+                similarity,
+            })
+        })
+        .collect();
+    results.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    results.truncate(limit);
+    results
 }
 
 /// Index statistics.
@@ -164,59 +184,84 @@ mod tests {
     }
 
     #[test]
-    fn test_reindexed_id_still_findable() {
-        // Regression: re-indexing used to make an id unfindable. The
-        // traversal itself is platform- and run-dependent (hnsw_rs entry
-        // points; even a whole-index limit misses points ~1 run in 8 —
-        // measured), so the deterministic coverage is split:
-        //   - bookkeeping arithmetic (over-fetch inputs), no ANN involved;
-        //   - findability at the LIVE direction (the exact nearest
-        //     neighbour — greedy descent always lands it);
-        //   - per-result invariants: a stale vector is never reported for
-        //     the id, never twice, never with the stale similarity.
+    fn test_reindex_regression_filter_drops_stale_keeps_live() {
+        // The re-index regression, tested where it is deterministic: the
+        // filter. "a" was indexed at point 0, then re-indexed at point 3 —
+        // point 0 is now stale. The ANN returns the stale point as the
+        // exact nearest of the query; the filter must drop it and keep the
+        // live point, even at limit 1. (hnsw_rs's traversal is randomised
+        // per process, so this lives in the pure function, not a graph
+        // query — measured: some processes never surface the live point at
+        // limit 1 no matter how many in-process retries.)
+        let mut rev = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        rev.push("a".to_string()); // re-indexed point
+        let mut ids = HashMap::new();
+        ids.insert("a".to_string(), 3);
+        ids.insert("b".to_string(), 1);
+        ids.insert("c".to_string(), 2);
+
+        // Traversal returns stale "a" (distance 0.0), live "a" (distance
+        // 0.006), then the others.
+        let neighbours = vec![(0usize, 0.0f32), (3, 0.006), (1, 1.0), (2, 1.0)];
+        let results = live_results(&neighbours, &rev, &ids, 1, 0.0);
+
+        assert_eq!(results.len(), 1, "live 'a' survives at limit 1");
+        assert_eq!(results[0].id, "a");
+        assert!(
+            results[0].similarity < 1.0 - 1e-3,
+            "reported 'a' must be the live vector (~0.994), never the stale 1.0"
+        );
+    }
+
+    #[test]
+    fn test_live_results_orders_thresholds_and_truncates() {
+        let rev: Vec<String> = ["x", "y", "z"].map(String::from).to_vec();
+        let ids: HashMap<String, usize> =
+            [("x", 0usize), ("y", 1), ("z", 2)]
+                .map(|(k, v)| (k.to_string(), v))
+                .into();
+
+        // Distances: x=0.1 (sim 0.9), y=0.5 (sim 0.5), z=0.9 (sim 0.1).
+        // Unsorted input, z below the 0.2 threshold: output must be
+        // similarity-descending with z dropped.
+        let neighbours = vec![(1usize, 0.5f32), (0, 0.1), (2, 0.9)];
+        let results = live_results(&neighbours, &rev, &ids, 3, 0.2);
+        let ids_out: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids_out, vec!["x", "y"], "similarity-descending, z below threshold");
+        assert!((results[0].similarity - 0.9).abs() < 1e-6);
+
+        // Truncation keeps the most similar.
+        let truncated = live_results(&neighbours, &rev, &ids, 1, 0.0);
+        assert_eq!(truncated.len(), 1);
+        assert_eq!(truncated[0].id, "x");
+    }
+
+    #[test]
+    fn test_reindex_bookkeeping_moves_the_id() {
+        // What the graph-level API guarantees deterministically: the id
+        // remaps to a new point and the old point stays in the graph
+        // (HNSW has no deletion), i.e. the over-fetch input grows.
         let mut indexer = HNSWIndexer::new(3).unwrap();
         indexer.index("a", &[1.0, 0.0, 0.0]).unwrap();
         indexer.index("noise1", &[0.0, 1.0, 0.0]).unwrap();
         indexer.index("noise2", &[0.0, 0.0, 1.0]).unwrap();
-        assert_eq!(indexer.rev.len(), 3);
-        assert_eq!(indexer.ids.len(), 3);
-        // Re-index "a" to a nearby but distinct direction.
+        let old_point = *indexer.ids.get("a").expect("id mapped");
         indexer.index("a", &[0.9, 0.1, 0.0]).unwrap();
-        assert_eq!(indexer.rev.len(), 4, "each re-index adds a graph point");
-        assert_eq!(indexer.ids.len(), 3, "the id map stays distinct");
-        assert_eq!(
-            indexer.ids.get("a"),
-            Some(&3),
-            "the id must point at the live point"
+        let new_point = *indexer.ids.get("a").expect("id mapped");
+        assert_ne!(old_point, new_point, "re-index must move the id's point");
+        assert!(
+            indexer.rev.len() > indexer.ids.len(),
+            "the superseded point stays in the graph"
         );
-        // superseded = 4 - 3 = 1, so fetch = limit + 1: the over-fetch
-        // input the stale-crowding fix depends on.
 
-        // Findability at the live direction: the live point is the exact
-        // nearest neighbour of this query, which greedy descent reaches.
+        // The live direction finds the id through the real graph: the
+        // live point is the exact nearest neighbour of this query, which
+        // greedy descent reliably reaches.
         let live = indexer.search(&[0.9, 0.1, 0.0], 1, 0.0).unwrap();
         assert!(
             live.iter().any(|r| r.id == "a"),
             "re-indexed id must be findable at its live direction: {live:?}"
         );
-
-        // Per-result invariants at the STALE direction: any reported "a"
-        // comes from the live vector — the stale point (similarity 1.0 to
-        // this query) is filtered — and an id is never reported twice.
-        let expected_live_similarity = 0.9f32 / (0.9f32 * 0.9 + 0.1f32 * 0.1).sqrt();
-        for _ in 0..10 {
-            let results = indexer.search(&[1.0, 0.0, 0.0], 4, 0.0).unwrap();
-            let a_hits: Vec<_> = results.iter().filter(|r| r.id == "a").collect();
-            assert!(a_hits.len() <= 1, "no duplicate reports: {results:?}");
-            if let Some(hit) = a_hits.first() {
-                assert!(
-                    (hit.similarity - expected_live_similarity).abs() < 1e-3,
-                    "reported 'a' must be the live vector (similarity \
-                     {expected_live_similarity:.4}), got {}: ",
-                    hit.similarity
-                );
-            }
-        }
     }
 
     #[test]
