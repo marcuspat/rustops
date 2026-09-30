@@ -100,10 +100,7 @@ impl HNSWIndexer {
         self.last_fetch
             .store(fetch, std::sync::atomic::Ordering::Relaxed);
         let neighbours = self.index.search(query, fetch, ef_search);
-        let raw: Vec<(usize, f32)> = neighbours
-            .iter()
-            .map(|n| (n.d_id, n.distance))
-            .collect();
+        let raw: Vec<(usize, f32)> = neighbours.iter().map(|n| (n.d_id, n.distance)).collect();
 
         Ok(live_results(&raw, &self.rev, &self.ids, limit, threshold))
     }
@@ -234,10 +231,9 @@ mod tests {
     #[test]
     fn test_live_results_orders_thresholds_and_truncates() {
         let rev: Vec<String> = ["x", "y", "z"].map(String::from).to_vec();
-        let ids: HashMap<String, usize> =
-            [("x", 0usize), ("y", 1), ("z", 2)]
-                .map(|(k, v)| (k.to_string(), v))
-                .into();
+        let ids: HashMap<String, usize> = [("x", 0usize), ("y", 1), ("z", 2)]
+            .map(|(k, v)| (k.to_string(), v))
+            .into();
 
         // Distances: x=0.1 (sim 0.9), y=0.5 (sim 0.5), z=0.9 (sim 0.1).
         // Unsorted input, z below the 0.2 threshold: output must be
@@ -245,7 +241,11 @@ mod tests {
         let neighbours = vec![(1usize, 0.5f32), (0, 0.1), (2, 0.9)];
         let results = live_results(&neighbours, &rev, &ids, 3, 0.2);
         let ids_out: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(ids_out, vec!["x", "y"], "similarity-descending, z below threshold");
+        assert_eq!(
+            ids_out,
+            vec!["x", "y"],
+            "similarity-descending, z below threshold"
+        );
         assert!((results[0].similarity - 0.9).abs() < 1e-6);
 
         // Truncation keeps the most similar.
@@ -322,7 +322,11 @@ mod fetch_and_filter_tests {
         // The load-bearing sizing of the re-index fix: one extra slot per
         // superseded point, never zero.
         assert_eq!(fetch_size(1, 0), 1);
-        assert_eq!(fetch_size(1, 3), 4, "three re-indexes widen the window by three");
+        assert_eq!(
+            fetch_size(1, 3),
+            4,
+            "three re-indexes widen the window by three"
+        );
         assert_eq!(fetch_size(5, 2), 7);
         assert_eq!(fetch_size(0, 0), 1, "a zero limit still fetches one point");
         assert_eq!(
@@ -363,7 +367,9 @@ mod fetch_wiring_tests {
 
         let _ = indexer.search(&[1.0, 0.0, 0.0], 5, 0.0).unwrap();
         assert_eq!(
-            indexer.last_fetch.load(std::sync::atomic::Ordering::Relaxed),
+            indexer
+                .last_fetch
+                .load(std::sync::atomic::Ordering::Relaxed),
             5,
             "no re-indexes: fetch equals the limit"
         );
@@ -373,7 +379,9 @@ mod fetch_wiring_tests {
         indexer.index("a", &[0.8, 0.2, 0.0]).unwrap();
         let _ = indexer.search(&[1.0, 0.0, 0.0], 5, 0.0).unwrap();
         assert_eq!(
-            indexer.last_fetch.load(std::sync::atomic::Ordering::Relaxed),
+            indexer
+                .last_fetch
+                .load(std::sync::atomic::Ordering::Relaxed),
             7,
             "fetch must be limit + superseded (5 + 2)"
         );
