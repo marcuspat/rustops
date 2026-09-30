@@ -53,11 +53,7 @@ async fn test_topology_service_end_to_end() {
 
     // Add dependency: service-a calls service-b.
     let services = service.graph().get_all_services();
-    let dependency = DependencyEdge::new(
-        services[0].id,
-        services[1].id,
-        DependencyType::Calls,
-    );
+    let dependency = DependencyEdge::new(services[0].id, services[1].id, DependencyType::Calls);
 
     service
         .graph_mut()
@@ -125,17 +121,9 @@ async fn test_service_graph_operations() {
     graph.add_service(service3).unwrap();
 
     // Add dependencies: frontend -> api -> database
-    let dep1 = DependencyEdge::new(
-        id1,
-        id2,
-        DependencyType::Calls,
-    );
+    let dep1 = DependencyEdge::new(id1, id2, DependencyType::Calls);
 
-    let dep2 = DependencyEdge::new(
-        id2,
-        id3,
-        DependencyType::Reads,
-    );
+    let dep2 = DependencyEdge::new(id2, id3, DependencyType::Reads);
 
     graph.add_dependency(dep1.from, dep1.to, dep1).unwrap();
     graph.add_dependency(dep2.from, dep2.to, dep2).unwrap();
@@ -145,20 +133,14 @@ async fn test_service_graph_operations() {
     assert_eq!(graph.dependency_count(), 2);
 
     // Test dependency discovery
-    let downstream = graph
-        .find_downstream_dependencies(&id1)
-        .unwrap();
+    let downstream = graph.find_downstream_dependencies(&id1).unwrap();
     assert_eq!(downstream.len(), 2);
 
-    let upstream = graph
-        .find_upstream_dependencies(&id3)
-        .unwrap();
+    let upstream = graph.find_upstream_dependencies(&id3).unwrap();
     assert_eq!(upstream.len(), 2);
 
     // Test blast radius
-    let blast_radius = graph
-        .calculate_blast_radius(&id3, 5)
-        .unwrap();
+    let blast_radius = graph.calculate_blast_radius(&id3, 5).unwrap();
     assert!(blast_radius.total_affected_services >= 2);
 
     println!("Service graph operations test passed");
