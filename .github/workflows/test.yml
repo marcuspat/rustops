@@ -155,13 +155,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run benchmarks
-        run: cargo bench --workspace -- --save-baseline main
+        # github-action-benchmark's 'cargo' tool parses bencher-format text,
+        # not criterion's HTML report — emit bencher lines and capture them.
+        run: |
+          set -o pipefail
+          cargo bench --workspace -- --output-format bencher --save-baseline main | tee benchmark-output.txt
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: 'cargo'
-          output-file-path: target/criterion/report/index.html
+          output-file-path: benchmark-output.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
 

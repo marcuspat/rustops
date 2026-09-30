@@ -112,13 +112,19 @@ impl Agent {
         for query in &self.config.queries {
             info!("Executing query: {}", query);
 
+            // One clock read for both ends of the window (two Utc::now()
+            // calls made the window drift by the loop latency), and the
+            // step clamped to the window so intervals below 15s don't ask
+            // Prometheus for a step longer than the range (which returns
+            // nothing).
+            let now = Utc::now();
+            let interval = self.config.interval_secs.max(1);
             let metric_query = MetricQuery {
                 metric_name: query.clone(),
                 labels: HashMap::new(),
-                start_time: Utc::now()
-                    - chrono::Duration::seconds(self.config.interval_secs as i64),
-                end_time: Utc::now(),
-                step: Some(15),
+                start_time: now - chrono::Duration::seconds(interval as i64),
+                end_time: now,
+                step: Some(interval.clamp(1, 15)),
             };
 
             match self.prometheus.collect_metrics(metric_query).await {

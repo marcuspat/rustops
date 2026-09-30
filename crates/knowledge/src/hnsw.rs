@@ -68,6 +68,10 @@ impl HNSWIndexer {
     /// slots without producing results — so a query can return fewer than
     /// `limit` entries even when more qualifying entries exist beyond the
     /// window. The entries that ARE returned are the nearest qualifying
+    ///
+    /// Cost note: the fetch window grows by the superseded count on every
+    /// query. When re-indexing dominates the workload, rebuild the index
+    /// instead of re-indexing id by id.
     /// ones the graph traversal reached, ordered by similarity.
     pub fn search(&self, query: &[f32], limit: usize, threshold: f32) -> Result<Vec<SearchResult>> {
         anyhow::ensure!(
@@ -121,6 +125,7 @@ impl HNSWIndexer {
     pub fn stats(&self) -> HNSWStats {
         HNSWStats {
             num_elements: self.index.get_nb_point(),
+            live_elements: self.ids.len(),
             dimensions: self.dimensions,
         }
     }
@@ -129,7 +134,11 @@ impl HNSWIndexer {
 /// Index statistics.
 #[derive(Debug, Clone)]
 pub struct HNSWStats {
+    /// Total points in the HNSW graph, **including superseded ones** from
+    /// re-indexed ids (HNSW has no deletion).
     pub num_elements: usize,
+    /// Distinct live ids — what search can actually return.
+    pub live_elements: usize,
     pub dimensions: usize,
 }
 
@@ -203,6 +212,7 @@ mod tests {
         indexer.index("b", &[0.0, 1.0]).unwrap();
         let stats = indexer.stats();
         assert_eq!(stats.num_elements, 2);
+        assert_eq!(stats.live_elements, 2);
         assert_eq!(stats.dimensions, 2);
     }
 }

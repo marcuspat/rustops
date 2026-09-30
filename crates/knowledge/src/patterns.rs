@@ -8,6 +8,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Pattern extractor
+///
+/// `min_occurrences` compares against repetition **within one incident**
+/// (action sequences repeated in `IncidentData.actions`). Symptom and
+/// resolution patterns occur exactly once per incident by construction, so
+/// a floor above 1 filters them out by design — cross-incident counting
+/// belongs to the pattern store that aggregates extracted patterns.
 pub struct PatternExtractor {
     min_confidence: f32,
     min_occurrences: usize,
@@ -91,16 +97,25 @@ impl PatternExtractor {
     }
 
     fn extract_action_sequences(&self, incident: &IncidentData) -> Result<Vec<Pattern>> {
-        let mut patterns = Vec::new();
+        // Count repeated actions within the incident so the
+        // `min_occurrences` floor compares against real repetition instead
+        // of a hardcoded 1 (which silently filtered every pattern at any
+        // floor above 1).
+        let mut actions: HashMap<&str, (usize, &Action)> = HashMap::new();
+        for action in &incident.actions {
+            let entry = actions.entry(action.name.as_str()).or_insert((0, action));
+            entry.0 += 1;
+        }
 
-        for (i, action) in incident.actions.iter().enumerate() {
+        let mut patterns = Vec::new();
+        for (name, (count, action)) in actions {
             patterns.push(Pattern {
                 id: uuid::Uuid::new_v4().to_string(),
                 pattern_type: PatternType::ActionSequence,
-                name: format!("Action {}: {}", i + 1, action.name),
+                name: format!("Action: {}", name),
                 description: format!("{}: {}", action.name, action.description),
                 confidence: action.success_rate,
-                occurrence_count: 1,
+                occurrence_count: count,
                 service: incident.service.clone(),
                 environment: incident.environment.clone(),
                 severity: incident.severity,
@@ -196,3 +211,74 @@ pub enum SeverityLevel {
 pub const SCHEMA_SQL: &str = r#"
 -- Tables are defined in repository.rs
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn incident(actions: Vec<Action>) -> IncidentData {
+        IncidentData {
+            title: "t".to_string(),
+            description: "d".to_string(),
+            service: "svc".to_string(),
+            environment: "prod".to_string(),
+            severity: SeverityLevel::Medium,
+            resolution: None,
+            resolution_time: Duration::from_secs(60),
+            actions,
+        }
+    }
+
+    fn action(name: &str) -> Action {
+        Action {
+            name: name.to_string(),
+            description: "d".to_string(),
+            action_type: "restart".to_string(),
+            success_rate: 0.9,
+            duration: Duration::from_secs(5),
+        }
+    }
+
+    #[tokio::test]
+    async fn min_occurrences_floor_compares_real_repetition() {
+        // Regression: occurrence_count used to be hardcoded to 1, so any
+        // floor >= 2 silently filtered every pattern, including genuinely
+        // repeated actions.
+        let extractor = PatternExtractor::new(0.5, 2);
+
+        let data = incident(vec![
+            action("restart"),
+            action("restart"),
+            action("rollback"),
+        ]);
+        let patterns = extractor.extract_from_incident(&data).await.unwrap();
+
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.name.contains("restart") && p.occurrence_count == 2),
+            "the repeated action must survive the floor of 2 with count 2: {patterns:?}"
+        );
+        assert!(
+            !patterns.iter().any(|p| p.name.contains("rollback")),
+            "single-occurrence actions must be filtered at floor 2"
+        );
+    }
+
+    #[tokio::test]
+    async fn floor_of_one_keeps_symptom_and_resolution() {
+        let extractor = PatternExtractor::new(0.5, 1);
+        let data = IncidentData {
+            resolution: Some("scaled up".to_string()),
+            ..incident(vec![action("restart")])
+        };
+        let patterns = extractor.extract_from_incident(&data).await.unwrap();
+        assert!(patterns
+            .iter()
+            .any(|p| p.pattern_type == PatternType::Symptom));
+        assert!(patterns
+            .iter()
+            .any(|p| p.pattern_type == PatternType::Resolution));
+    }
+}
