@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/banner.svg" alt="rustops — animated banner" width="100%"></p>
+
 # RustOps
 
 **An AIOps toolkit in Rust: statistical anomaly detection, incident correlation, service topology, and (experimental) automated remediation.**

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-label="rustops: AIOps toolkit in Rust: Z-score / IQR / CUSUM anomaly detection, alert correlation, event-sourced incidents, Prometheus pipeline.">
+<title>rustops</title>
+<defs>
+<radialGradient id="aur1"><stop offset="0" stop-color="#22d3ee" stop-opacity="0.50"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>
+<radialGradient id="aur2"><stop offset="0" stop-color="#7c3aed" stop-opacity="0.45"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient>
+<radialGradient id="orb"><stop offset="0" stop-color="#22d3ee" stop-opacity="0.9"/><stop offset="0.55" stop-color="#22d3ee" stop-opacity="0.25"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>
+<linearGradient id="tgrad" x1="0" x2="1"><stop offset="0" stop-color="#f74c00"/><stop offset="0.6" stop-color="#ffffff"/><stop offset="1" stop-color="#f74c00"/></linearGradient>
+<linearGradient id="beam" x1="0" x2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="0"/><stop offset="0.5" stop-color="#ffffff" stop-opacity="0.45"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
+<linearGradient id="hglow" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f74c00" stop-opacity="0.30"/><stop offset="1" stop-color="#f74c00" stop-opacity="0"/></linearGradient>
+<filter id="soft" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="30"/></filter>
+<filter id="glow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="5"/></filter>
+<filter id="glow2" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="10"/></filter>
+</defs>
+<rect width="1200" height="400" fill="#04060c"/>
+<ellipse cx="250" cy="120" rx="360" ry="190" fill="url(#aur1)" filter="url(#soft)">
+<animateTransform attributeName="transform" type="translate" values="0 0; 70 24; -40 12; 0 0" dur="26s" repeatCount="indefinite"/>
+</ellipse>
+<ellipse cx="960" cy="150" rx="400" ry="210" fill="url(#aur2)" filter="url(#soft)">
+<animateTransform attributeName="transform" type="translate" values="0 0; -60 18; 34 -12; 0 0" dur="32s" repeatCount="indefinite"/>
+</ellipse>
+<g><circle cx="748" cy="77" r="1" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.85s" begin="-1.38s" repeatCount="indefinite"/></circle>
+<circle cx="756" cy="33" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.92s" begin="-1.80s" repeatCount="indefinite"/></circle>
+<circle cx="96" cy="138" r="2" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="4.20s" begin="-2.04s" repeatCount="indefinite"/></circle>
+<circle cx="726" cy="103" r="1" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.32s" begin="-3.90s" repeatCount="indefinite"/></circle>
+<circle cx="76" cy="59" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.99s" begin="-0.28s" repeatCount="indefinite"/></circle>
+<circle cx="1118" cy="182" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.20s" begin="-3.11s" repeatCount="indefinite"/></circle>
+<circle cx="401" cy="197" r="1" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.87s" begin="-0.47s" repeatCount="indefinite"/></circle>
+<circle cx="736" cy="197" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.75s" begin="-4.44s" repeatCount="indefinite"/></circle>
+<circle cx="649" cy="73" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.46s" begin="-1.59s" repeatCount="indefinite"/></circle>
+<circle cx="682" cy="154" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.25s" begin="-2.67s" repeatCount="indefinite"/></circle>
+<circle cx="1094" cy="56" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.53s" begin="-2.90s" repeatCount="indefinite"/></circle>
+<circle cx="1158" cy="61" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.07s" begin="-0.54s" repeatCount="indefinite"/></circle>
+<circle cx="119" cy="75" r="2" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.28s" begin="-1.19s" repeatCount="indefinite"/></circle>
+<circle cx="282" cy="191" r="2" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="4.25s" begin="-0.60s" repeatCount="indefinite"/></circle>
+<circle cx="810" cy="203" r="1.2" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.10s" begin="-1.15s" repeatCount="indefinite"/></circle>
+<circle cx="871" cy="107" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.89s" begin="-1.55s" repeatCount="indefinite"/></circle>
+<circle cx="672" cy="98" r="1.2" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.81s" begin="-2.19s" repeatCount="indefinite"/></circle>
+<circle cx="634" cy="181" r="1" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.22s" begin="-1.02s" repeatCount="indefinite"/></circle>
+<circle cx="751" cy="100" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.35s" begin="-1.77s" repeatCount="indefinite"/></circle>
+<circle cx="1034" cy="186" r="1" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.48s" begin="-0.12s" repeatCount="indefinite"/></circle>
+<circle cx="1139" cy="193" r="1" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.49s" begin="-0.98s" repeatCount="indefinite"/></circle>
+<circle cx="448" cy="96" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.01s" begin="-3.14s" repeatCount="indefinite"/></circle>
+<circle cx="772" cy="127" r="1.2" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.41s" begin="-2.45s" repeatCount="indefinite"/></circle>
+<circle cx="77" cy="178" r="1" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="2.27s" begin="-2.89s" repeatCount="indefinite"/></circle>
+<circle cx="216" cy="135" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="4.11s" begin="-3.44s" repeatCount="indefinite"/></circle>
+<circle cx="525" cy="68" r="1.2" fill="#dbe7ff"><animate attributeName="opacity" values="0.08;0.85;0.08" dur="3.25s" begin="-3.68s" repeatCount="indefinite"/></circle></g>
+<rect x="0" y="236" width="1200" height="130" fill="url(#hglow)">
+<animate attributeName="opacity" values="0.45;0.9;0.45" dur="7s" repeatCount="indefinite"/>
+</rect>
+<circle cx="600" cy="242" r="90" fill="url(#orb)">
+<animate attributeName="r" values="78;110;78" dur="6s" repeatCount="indefinite"/>
+</circle>
+<path d="M600 240 L-150 400 M600 240 L0 400 M600 240 L150 400 M600 240 L300 400 M600 240 L450 400 M600 240 L600 400 M600 240 L750 400 M600 240 L900 400 M600 240 L1050 400 M600 240 L1200 400 M600 240 L1350 400" stroke="#155e75" stroke-width="1.3" opacity="0.55" fill="none" stroke-dasharray="12 16">
+<animate attributeName="stroke-dashoffset" values="0;-56" dur="0.9s" repeatCount="indefinite"/>
+</path>
+<path d="M0 252 H1200 M0 268 H1200 M0 290 H1200 M0 318 H1200 M0 352 H1200 M0 392 H1200" stroke="#155e75" stroke-width="1" opacity="0.35" fill="none"/>
+<circle cx="600" cy="241" r="4" fill="#f74c00" filter="url(#glow2)">
+<animate attributeName="opacity" values="0.6;1;0.6" dur="2.6s" repeatCount="indefinite"/>
+</circle>
+<rect x="-260" y="-90" width="170" height="580" fill="url(#beam)" opacity="0.10" filter="url(#soft)" transform="rotate(14)">
+<animateTransform attributeName="transform" type="translate" additive="sum" values="-350 0;1750 0" dur="7s" repeatCount="indefinite"/>
+</rect>
+<rect x="-260" y="-90" width="170" height="580" fill="url(#beam)" opacity="0.07" filter="url(#soft)" transform="rotate(14)">
+<animateTransform attributeName="transform" type="translate" additive="sum" values="-350 0;1750 0" dur="7s" begin="-3.4s" repeatCount="indefinite"/>
+</rect>
+<text x="600" y="66" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-size="13" letter-spacing="6" fill="#f74c00" opacity="0.85">MARCUSPAT · RUSTOPS</text>
+<text x="600" y="152" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="74" font-weight="800" letter-spacing="1" fill="#f74c00" opacity="0.55" filter="url(#glow2)">rustops</text>
+<text x="600" y="152" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="74" font-weight="800" letter-spacing="1" fill="url(#tgrad)">rustops</text>
+<text x="600" y="198" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="19" letter-spacing="0.4" fill="#a8b3c4">AIOps toolkit in Rust: Z-score / IQR / CUSUM anomaly detection,</text>
+<text x="600" y="224" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="19" letter-spacing="0.4" fill="#a8b3c4">alert correlation, event-sourced incidents, Prometheus pipeline.</text>
+
+<g transform="translate(600,308)">
+
+<line x1="-450" y1="-64" x2="-450" y2="44" stroke="#262d38"/><line x1="-450" y1="44" x2="450" y2="44" stroke="#262d38"/>
+<path d="M-450 -12 C-390 -20 -340 -14 -280 -22 C-220 -30 -160 -18 -100 -26 L-40 -32 L10 -62 L60 -4 C120 -14 180 -4 240 -12 L450 -20" fill="none" stroke="#3d2a1c" stroke-width="3"/>
+<path d="M-450 -12 C-390 -20 -340 -14 -280 -22 C-220 -30 -160 -18 -100 -26 L-40 -32 L10 -62 L60 -4 C120 -14 180 -4 240 -12 L450 -20" fill="none" stroke="#f74c00" stroke-width="3.5" pathLength="100" stroke-dasharray="16 84" stroke-linecap="round" filter="url(#glow)">
+<animate attributeName="stroke-dashoffset" values="100;0" dur="3.4s" repeatCount="indefinite"/>
+</path>
+<circle cx="10" cy="-62" r="8" fill="none" stroke="#f85149" stroke-width="2"><animate attributeName="r" values="8;16;8" dur="1.6s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;0;1" dur="1.6s" repeatCount="indefinite"/></circle>
+<circle cx="10" cy="-62" r="4.5" fill="#f85149" filter="url(#glow)"/>
+<rect x="252" y="-60" width="196" height="28" rx="14" fill="#1a0b0b" stroke="#f85149" stroke-width="1.5"><animate attributeName="opacity" values="1;0.4;1" dur="1.6s" repeatCount="indefinite"/></rect>
+<text x="350" y="-41" font-family="ui-monospace,Menlo,Consolas,monospace" font-size="13" fill="#f85149" text-anchor="middle">z=4.2 · CUSUM trip</text>
+<g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="11" fill="#7d8590">
+<line x1="-430" y1="64" x2="430" y2="64" stroke="#262d38"/>
+<rect x="-400" y="56" width="16" height="16" rx="3" fill="#21262d" stroke="#f74c00"><animate attributeName="fill" values="#21262d;#3a1a08;#21262d;#21262d" keyTimes="0;0.4;0.6;1" dur="3.4s" repeatCount="indefinite"/></rect>
+<rect x="-280" y="56" width="16" height="16" rx="3" fill="#21262d" stroke="#f74c00"><animate attributeName="fill" values="#21262d;#3a1a08;#21262d;#21262d" keyTimes="0;0.6;0.8;1" dur="3.4s" repeatCount="indefinite"/></rect>
+<rect x="-160" y="56" width="16" height="16" rx="3" fill="#21262d" stroke="#f74c00"><animate attributeName="fill" values="#21262d;#3a1a08;#21262d;#21262d" keyTimes="0;0.8;0.97;1" dur="3.4s" repeatCount="indefinite"/></rect>
+<text x="60" y="69">alerts → correlated → incident</text>
+<text x="430" y="69" text-anchor="end" fill="#3fb950">event-sourced ✓</text>
+</g>
+
+</g>
+</svg>
