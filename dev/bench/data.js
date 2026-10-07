@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790808519723,
+  "lastUpdate": 1791386745456,
   "repoUrl": "https://github.com/marcuspat/rustops",
   "entries": {
     "Benchmark": [
@@ -143,6 +143,150 @@ window.BENCHMARK_DATA = {
             "name": "metric_aggregation/10000",
             "value": 9710,
             "range": "± 145",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "marcus@adventureonthewave.com",
+            "name": "Marcus Patman",
+            "username": "marcuspat"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "534df3f808d54dcb35198f63d77bcf9857d92fd5",
+          "message": "Add animated SVG banner to README (#20)",
+          "timestamp": "2026-10-07T09:21:06-06:00",
+          "tree_id": "35f493bc87d6badba4d5e3e604e4e0ebe829dae3",
+          "url": "https://github.com/marcuspat/rustops/commit/534df3f808d54dcb35198f63d77bcf9857d92fd5"
+        },
+        "date": 1791386744418,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_creation_simple",
+            "value": 1342,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_creation_with_correlation",
+            "value": 1359,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_serialize_json",
+            "value": 690,
+            "range": "± 47",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_deserialize_json",
+            "value": 838,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_batch/10",
+            "value": 6092,
+            "range": "± 56",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_batch/100",
+            "value": 61149,
+            "range": "± 458",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_batch/1000",
+            "value": 615677,
+            "range": "± 6092",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_creation/constructor_with_labels",
+            "value": 1060,
+            "range": "± 156",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_creation/constructor_empty_labels",
+            "value": 930,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_serialize_json",
+            "value": 645,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_deserialize_json",
+            "value": 1061,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/1",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/5",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/10",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/20",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/50",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_aggregation/10",
+            "value": 3,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_aggregation/100",
+            "value": 54,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_aggregation/1000",
+            "value": 880,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_aggregation/10000",
+            "value": 9826,
+            "range": "± 545",
             "unit": "ns/iter"
           }
         ]
