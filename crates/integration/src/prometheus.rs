@@ -11,7 +11,7 @@ use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
-use hyper::{Body, Client, Method, Request};
+use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -153,7 +153,7 @@ pub enum RelabelAction {
 /// Prometheus adapter implementation
 pub struct PrometheusAdapter {
     base: adapter::BaseAdapter,
-    client: Client<hyper::client::HttpConnector>,
+    client: Client,
     base_url: String,
     /// Basic-auth credentials, sent on every request. Populated but
     /// historically never applied — scrapes against a protected Prometheus
@@ -242,16 +242,14 @@ impl PrometheusAdapter {
                 let form_body = form_urlencoded::Serializer::new(String::new())
                     .extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str())))
                     .finish();
-                let mut builder = Request::builder()
-                    .method(Method::POST)
-                    .uri(&url)
+                let mut builder = client
+                    .post(&url)
                     .header(CONTENT_TYPE, "application/x-www-form-urlencoded");
                 if let Some(auth) = &auth {
                     builder = builder.header(AUTHORIZATION, auth);
                 }
-                let request = builder.body(Body::from(form_body))?;
 
-                let response = client.request(request).await?;
+                let response = builder.body(form_body).send().await?;
 
                 if !response.status().is_success() {
                     return Err(IntegrationError::Network(format!(
@@ -261,8 +259,7 @@ impl PrometheusAdapter {
                     )));
                 }
 
-                let body = hyper::body::to_bytes(response.into_body()).await?;
-                let response: PrometheusResponse = serde_json::from_slice(&body)?;
+                let response: PrometheusResponse = response.json().await?;
 
                 if response.status != "success" {
                     return Err(IntegrationError::Unknown(
@@ -406,16 +403,12 @@ impl PrometheusAdapter {
             let url = url.clone();
             let auth = auth.clone();
             async move {
-                let mut builder = Request::builder()
-                    .method(Method::GET)
-                    .uri(&url)
-                    .header(USER_AGENT, "rustops-integration/1.0");
+                let mut builder = client.get(&url).header(USER_AGENT, "rustops-integration/1.0");
                 if let Some(auth) = &auth {
                     builder = builder.header(AUTHORIZATION, auth);
                 }
-                let request = builder.body(Body::empty())?;
 
-                let response = client.request(request).await?;
+                let response = builder.send().await?;
 
                 if !response.status().is_success() {
                     return Err(IntegrationError::Network(format!(
@@ -425,8 +418,8 @@ impl PrometheusAdapter {
                     )));
                 }
 
-                let body = hyper::body::to_bytes(response.into_body()).await?;
-                Ok(String::from_utf8(body.to_vec())?)
+                let body = response.text().await?;
+                Ok(body)
             }
         })
         .await
@@ -449,13 +442,12 @@ impl PrometheusAdapter {
             let url = url.clone();
             let auth = auth.clone();
             async move {
-                let mut builder = Request::builder().method(Method::GET).uri(&url);
+                let mut builder = client.get(&url);
                 if let Some(auth) = &auth {
                     builder = builder.header(AUTHORIZATION, auth);
                 }
-                let request = builder.body(Body::empty())?;
 
-                let response = client.request(request).await?;
+                let response = builder.send().await?;
 
                 if !response.status().is_success() {
                     return Err(IntegrationError::Network(format!(
@@ -465,8 +457,7 @@ impl PrometheusAdapter {
                     )));
                 }
 
-                let body = hyper::body::to_bytes(response.into_body()).await?;
-                let response: LabelNamesResponse = serde_json::from_slice(&body)?;
+                let response: LabelNamesResponse = response.json().await?;
 
                 if response.status != "success" {
                     return Err(IntegrationError::Unknown(

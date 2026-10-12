@@ -49,6 +49,12 @@ pub enum IntegrationError {
 }
 
 // From implementations for common error types
+impl From<reqwest::Error> for IntegrationError {
+    fn from(err: reqwest::Error) -> Self {
+        IntegrationError::Network(err.to_string())
+    }
+}
+
 impl From<serde_json::Error> for IntegrationError {
     fn from(err: serde_json::Error) -> Self {
         IntegrationError::Serialization(err.to_string())
