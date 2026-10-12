@@ -403,7 +403,9 @@ impl PrometheusAdapter {
             let url = url.clone();
             let auth = auth.clone();
             async move {
-                let mut builder = client.get(&url).header(USER_AGENT, "rustops-integration/1.0");
+                let mut builder = client
+                    .get(&url)
+                    .header(USER_AGENT, "rustops-integration/1.0");
                 if let Some(auth) = &auth {
                     builder = builder.header(AUTHORIZATION, auth);
                 }
