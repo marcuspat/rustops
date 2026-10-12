@@ -34,7 +34,7 @@ kube = { workspace = true }
 k8s-openapi = { workspace = true }
 
 # HTTP client
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
 
 # Futures
 futures = "0.3"
