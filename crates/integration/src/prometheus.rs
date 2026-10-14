@@ -30,8 +30,11 @@ pub struct PrometheusResponse {
 
 /// Prometheus query result payload
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrometheusData {
-    /// Result type (vector, matrix, scalar, or string)
+    /// Result type (vector, matrix, scalar, or string). The API sends
+    /// this as `resultType`; without the rename serde looks for a
+    /// snake_case key that real responses never contain.
     pub result_type: String,
     /// Result series
     pub result: Vec<PrometheusMetric>,
@@ -904,7 +907,7 @@ mod query_wire_tests {
             .and(header("content-type", "application/x-www-form-urlencoded"))
             .and(body_string_contains("query=up"))
             .respond_with(ResponseTemplate::new(200).set_body_string(
-                r#"{"status":"success","data":{"result_type":"vector","result":[]}}"#,
+                r#"{"status":"success","data":{"resultType":"vector","result":[]}}"#,
             ))
             .mount(&server)
             .await;

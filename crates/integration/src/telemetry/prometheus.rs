@@ -92,7 +92,6 @@ impl PrometheusAdapter {
     }
 
     /// Parse metric value from Prometheus response
-    #[allow(dead_code)] // stub retained by rescue pass
     fn parse_metric_value(value: serde_json::Value) -> Option<f64> {
         match value {
             serde_json::Value::Number(n) => n.as_f64(),
@@ -147,19 +146,23 @@ impl TelemetryCollector for PrometheusAdapter {
                                 .map(move |(ts, value)| Metric {
                                     name: name.clone(),
                                     labels: matrix.metric.clone(),
-                                    value,
+                                    value: value.0,
                                     timestamp: DateTime::from_timestamp(ts as i64, 0)
                                         .unwrap_or_default(),
                                 })
                                 .collect::<Vec<_>>()
                                 .into_iter(),
-                            PrometheusResult::Vector(vector) => vec![Metric {
-                                name: name.clone(),
-                                labels: vector.metric,
-                                value: vector.value,
-                                timestamp: Utc::now(),
-                            }]
-                            .into_iter(),
+                            PrometheusResult::Vector(vector) => {
+                                let (ts, value) = vector.value;
+                                vec![Metric {
+                                    name: name.clone(),
+                                    labels: vector.metric,
+                                    value: value.0,
+                                    timestamp: DateTime::from_timestamp(ts as i64, 0)
+                                        .unwrap_or_default(),
+                                }]
+                                .into_iter()
+                            }
                         }
                     })
                     .collect();
@@ -263,14 +266,38 @@ enum PrometheusResult {
 #[derive(Debug, serde::Deserialize, Clone)]
 struct PrometheusMatrix {
     pub metric: HashMap<String, String>,
-    pub values: Vec<(f64, f64)>, // (timestamp, value)
+    pub values: Vec<(f64, SampleValue)>, // (timestamp, value)
 }
 
 #[derive(Debug, serde::Deserialize, Clone)]
 struct PrometheusVector {
     pub metric: HashMap<String, String>,
-    #[serde(rename = "value")]
-    pub value: f64,
+    // Instant sample: [timestamp, "value"] — Prometheus encodes the
+    // value as a string, so this is a pair, not a bare number.
+    pub value: (f64, SampleValue),
+}
+
+/// A PromQL sample value. The Prometheus HTTP API always encodes sample
+/// values as JSON strings ("1", "0.5", "NaN", "+Inf") — never bare
+/// numbers — so an `f64` field fails deserialization against every real
+/// server. Bare numbers are still accepted so hand-rolled fixtures that
+/// predate this keep working.
+#[derive(Debug, Clone, Copy)]
+struct SampleValue(f64);
+
+impl<'de> serde::Deserialize<'de> for SampleValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        match PrometheusAdapter::parse_metric_value(raw) {
+            Some(value) => Ok(Self(value)),
+            None => Err(serde::de::Error::custom(
+                "sample value must be a number or a numeric string",
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -291,6 +318,9 @@ mod tests {
         // unmatched, which `IntegrationResult` surfaces as an error -
         // failing `assert!(result.is_ok())` regardless of the response body
         // configured below.
+        //
+        // The body below mirrors the real Prometheus HTTP API: sample
+        // values are JSON *strings* ("1", "NaN", "+Inf"), not numbers.
         Mock::given(method("GET"))
             .and(path("/api/v1/query_range"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -299,7 +329,10 @@ mod tests {
                     "resultType": "matrix",
                     "result": [{
                         "metric": {"__name__": "up", "job": "prometheus"},
-                        "values": [[1234567890.0, 1.0]]
+                        "values": [
+                            [1234567890.0, "1"],
+                            [1234567950.0, "NaN"]
+                        ]
                     }]
                 }
             })))
@@ -329,7 +362,64 @@ mod tests {
         assert!(result.is_ok());
 
         let metrics = result.unwrap();
-        assert!(!metrics.is_empty());
+        assert_eq!(metrics.len(), 2);
+        assert_eq!(metrics[0].name, "up");
+        assert_eq!(metrics[0].value, 1.0);
+        assert_eq!(
+            metrics[0].timestamp,
+            DateTime::from_timestamp(1234567890, 0).unwrap()
+        );
+        assert!(metrics[1].value.is_nan(), "NaN samples must parse to f64::NAN");
+    }
+
+    #[tokio::test]
+    async fn test_prometheus_query_vector_shaped_response() {
+        // A range query over an instant-vector expression returns a
+        // `vector` resultType, where each entry carries a single
+        // `[timestamp, "value"]` sample. Real Prometheus sends the value
+        // as a string there too.
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v1/query_range"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "success",
+                "data": {
+                    "resultType": "vector",
+                    "result": [{
+                        "metric": {"__name__": "up", "job": "prometheus"},
+                        "value": [1234567890.0, "0.5"]
+                    }]
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = PrometheusConfig {
+            url: mock_server.uri(),
+            username: None,
+            password: None,
+            bearer_token: None,
+            timeout: std::time::Duration::from_secs(5),
+        };
+
+        let adapter = PrometheusAdapter::new(config);
+
+        let query = MetricQuery {
+            metric_name: "up".to_string(),
+            labels: HashMap::new(),
+            start_time: Utc::now() - chrono::Duration::hours(1),
+            end_time: Utc::now(),
+            step: Some(60),
+        };
+
+        let metrics = adapter.collect_metrics(query).await.unwrap();
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].value, 0.5);
+        assert_eq!(
+            metrics[0].timestamp,
+            DateTime::from_timestamp(1234567890, 0).unwrap()
+        );
     }
 
     #[tokio::test]

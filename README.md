@@ -113,7 +113,12 @@ The detector requires at least 8 samples of a metric name in a batch before it s
 
 ## Configuration
 
-The topology service takes its optional Prometheus endpoint from `TopologyConfig::prometheus_url` (empty = no Prometheus-backed discovery). The agent reads `PROMETHEUS_URL` and a scrape interval. The pipeline's Kafka settings are placeholders for the future consumer and are logged as such.
+The topology service takes its optional Prometheus endpoint from `TopologyConfig::prometheus_url` (empty = no Prometheus-backed discovery). The agent reads two environment variables, with defaults for anything unset or malformed:
+
+- `PROMETHEUS_URL` — Prometheus server URL (default `http://localhost:9090`)
+- `PROMETHEUS_INTERVAL_SECS` — scrape interval in seconds (default `15`)
+
+The pipeline's Kafka settings are placeholders for the future consumer and are logged as such.
 
 ---
 
@@ -128,15 +133,13 @@ cargo bench -p rustops-common                            # criterion benches for
 
 CI runs build, tests, lint, and security scanning via the workflows in `.github/workflows/`.
 
-### Known security debt
+### Security posture
 
-Outbound TLS currently runs on the reqwest 0.11 stack (rustls 0.21 /
-rustls-webpki 0.101 / h2 0.3), which carries three ignored
-certificate-path-validation advisories plus an h2 DoS advisory (see
-`.cargo/audit.toml` for the full list with justifications, and issue #15
-for the reqwest 0.12 migration that clears them). Basic-auth credentials
-sent by the Prometheus adapter travel over that stack — treat scraped
-endpoints as trusted networks until #15 lands.
+The reqwest 0.11 TLS advisories that originally motivated this section
+(rustls 0.21 / webpki 0.101 / h2 0.3) were cleared by the reqwest 0.12
+migration in #21 (rustls 0.23 / webpki 0.103 / h2 0.4). `.cargo/audit.toml`
+carries no ignored advisories; `cargo audit` runs in CI and failures gate
+the build.
 
 ---
 

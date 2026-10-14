@@ -121,10 +121,15 @@ impl Neo4jStore {
 
     /// Connect to Neo4j
     async fn connect(&self) -> Result<()> {
-        // In a real implementation, this would establish connection using neo4rs
-        debug!("Connecting to Neo4j at: {}", self.uri);
-        info!("Neo4j connection established (stubbed)");
-        Ok(())
+        // There is no Neo4j client behind this struct yet. Refuse rather
+        // than pretend: a silent `Ok` here would make every write
+        // "succeed" and every read come back empty, losing data while
+        // looking healthy. Callers see the failure at initialize time.
+        Err(Error::graph_database(format!(
+            "Neo4j store is not implemented; refusing to connect to {} (topology \
+             persistence is in-memory only)",
+            self.uri
+        )))
     }
 
     /// Create indexes for performance
@@ -642,7 +647,16 @@ mod tests {
         let config = Neo4jConfig::default();
         let store = Neo4jStore::new(config.uri, config.username, config.password);
 
-        assert!(store.connect().await.is_ok());
+        // The store has no client behind it, so it must refuse to connect
+        // (README: "refuses to connect rather than pretending"). A silent
+        // Ok would make writes "succeed" and reads return empty.
+        let result = store.connect().await;
+        assert!(result.is_err());
+        let message = result.err().unwrap().to_string();
+        assert!(
+            message.contains("not implemented"),
+            "error should say the store is not implemented, got: {message}"
+        );
     }
 
     #[tokio::test]

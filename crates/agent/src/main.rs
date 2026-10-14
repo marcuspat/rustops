@@ -55,6 +55,82 @@ impl Default for AgentConfig {
     }
 }
 
+impl AgentConfig {
+    /// Load configuration from the environment, falling back to
+    /// defaults for anything unset or malformed.
+    ///
+    /// - `PROMETHEUS_URL` — Prometheus server URL (e.g.
+    ///   `http://prometheus:9090`)
+    /// - `PROMETHEUS_INTERVAL_SECS` — scrape interval in seconds
+    fn from_env() -> Self {
+        let mut config = Self::default();
+
+        if let Ok(url) = std::env::var("PROMETHEUS_URL") {
+            let url = url.trim().to_string();
+            if !url.is_empty() {
+                config.prometheus_url = url;
+            }
+        }
+
+        if let Ok(raw) = std::env::var("PROMETHEUS_INTERVAL_SECS") {
+            if let Ok(secs) = raw.trim().parse::<u64>() {
+                if secs > 0 {
+                    config.interval_secs = secs;
+                } else {
+                    warn!("PROMETHEUS_INTERVAL_SECS must be > 0; using default");
+                }
+            } else {
+                warn!(
+                    "PROMETHEUS_INTERVAL_SECS={!r} is not a number; using default",
+                    raw
+                );
+            }
+        }
+
+        config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One sequential test: these scenarios mutate process-global env
+    /// vars, so parallel siblings would race each other.
+    #[test]
+    fn from_env_defaults_overrides_and_malformed_inputs() {
+        std::env::remove_var("PROMETHEUS_URL");
+        std::env::remove_var("PROMETHEUS_INTERVAL_SECS");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.prometheus_url, "http://localhost:9090");
+        assert_eq!(config.interval_secs, 15);
+
+        std::env::set_var("PROMETHEUS_URL", "http://prometheus.internal:9091");
+        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "30");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.prometheus_url, "http://prometheus.internal:9091");
+        assert_eq!(config.interval_secs, 30);
+
+        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "fast");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.interval_secs, 15, "malformed interval must fall back");
+
+        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "0");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.interval_secs, 15, "zero interval must fall back");
+
+        std::env::set_var("PROMETHEUS_URL", "   ");
+        let config = AgentConfig::from_env();
+        assert_eq!(
+            config.prometheus_url, "http://localhost:9090",
+            "whitespace-only URL must fall back"
+        );
+
+        std::env::remove_var("PROMETHEUS_URL");
+        std::env::remove_var("PROMETHEUS_INTERVAL_SECS");
+    }
+}
+
 /// Telemetry collection agent
 struct Agent {
     config: AgentConfig,
@@ -236,8 +312,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("RustOps Telemetry Agent starting...");
 
-    // Load configuration (use defaults for now)
-    let config = AgentConfig::default();
+    // Load configuration from the environment (PROMETHEUS_URL,
+    // PROMETHEUS_INTERVAL_SECS; defaults for anything unset)
+    let config = AgentConfig::from_env();
+    info!(
+        "Agent config: prometheus={} interval={}s",
+        config.prometheus_url, config.interval_secs
+    );
 
     // Create and initialize agent
     let mut agent = Agent::new(config)?;
