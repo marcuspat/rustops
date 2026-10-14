@@ -389,7 +389,7 @@ mod tests {
         std::env::set_var("PROMETHEUS_URL", "http://prometheus.internal:9091");
         std::env::set_var("PROMETHEUS_INTERVAL_SECS", "30");
         let config = AgentConfig::from_env();
-        assert_eq!(config.prometheus_url, "http://prometheus.internal:9091");
+        assert_eq!(config.prometheus_url, "http://prometheus.internal:9091/");
         assert_eq!(config.interval_secs, 30);
 
         // Noncanonical-but-parseable input is accepted and normalized,
@@ -500,7 +500,7 @@ mod tests {
         );
         assert_eq!(
             redact_url_credentials("http://user:pass@host:9090?q=1#frag"),
-            "http://***@host:9090?q=1#frag",
+            "http://***@host:9090/?q=1#frag", // Url inserts the canonical "/" before "?q"
             "query and fragment must survive authority redaction"
         );
     }
