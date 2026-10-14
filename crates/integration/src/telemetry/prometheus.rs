@@ -106,9 +106,7 @@ impl PrometheusAdapter {
         let url = self.config.url.as_str();
         if let Some(scheme_end) = url.find("://") {
             let rest = &url[scheme_end + 3..];
-            let authority_end = rest
-                .find(['/', '?', '#'])
-                .unwrap_or(rest.len());
+            let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
             if let Some(at) = rest[..authority_end].rfind('@') {
                 return format!("{}***@{}", &url[..scheme_end + 3], &rest[at + 1..]);
             }
@@ -399,7 +397,10 @@ mod tests {
             DateTime::from_timestamp_millis(1234567890250).unwrap(),
             "fractional timestamps must survive to millisecond precision"
         );
-        assert!(metrics[1].value.is_nan(), "NaN samples must parse to f64::NAN");
+        assert!(
+            metrics[1].value.is_nan(),
+            "NaN samples must parse to f64::NAN"
+        );
     }
 
     #[tokio::test]
