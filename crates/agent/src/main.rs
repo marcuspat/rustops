@@ -91,46 +91,6 @@ impl AgentConfig {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// One sequential test: these scenarios mutate process-global env
-    /// vars, so parallel siblings would race each other.
-    #[test]
-    fn from_env_defaults_overrides_and_malformed_inputs() {
-        std::env::remove_var("PROMETHEUS_URL");
-        std::env::remove_var("PROMETHEUS_INTERVAL_SECS");
-        let config = AgentConfig::from_env();
-        assert_eq!(config.prometheus_url, "http://localhost:9090");
-        assert_eq!(config.interval_secs, 15);
-
-        std::env::set_var("PROMETHEUS_URL", "http://prometheus.internal:9091");
-        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "30");
-        let config = AgentConfig::from_env();
-        assert_eq!(config.prometheus_url, "http://prometheus.internal:9091");
-        assert_eq!(config.interval_secs, 30);
-
-        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "fast");
-        let config = AgentConfig::from_env();
-        assert_eq!(config.interval_secs, 15, "malformed interval must fall back");
-
-        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "0");
-        let config = AgentConfig::from_env();
-        assert_eq!(config.interval_secs, 15, "zero interval must fall back");
-
-        std::env::set_var("PROMETHEUS_URL", "   ");
-        let config = AgentConfig::from_env();
-        assert_eq!(
-            config.prometheus_url, "http://localhost:9090",
-            "whitespace-only URL must fall back"
-        );
-
-        std::env::remove_var("PROMETHEUS_URL");
-        std::env::remove_var("PROMETHEUS_INTERVAL_SECS");
-    }
-}
-
 /// Telemetry collection agent
 struct Agent {
     config: AgentConfig,
@@ -353,4 +313,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Agent stopped");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One sequential test: these scenarios mutate process-global env
+    /// vars, so parallel siblings would race each other.
+    #[test]
+    fn from_env_defaults_overrides_and_malformed_inputs() {
+        std::env::remove_var("PROMETHEUS_URL");
+        std::env::remove_var("PROMETHEUS_INTERVAL_SECS");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.prometheus_url, "http://localhost:9090");
+        assert_eq!(config.interval_secs, 15);
+
+        std::env::set_var("PROMETHEUS_URL", "http://prometheus.internal:9091");
+        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "30");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.prometheus_url, "http://prometheus.internal:9091");
+        assert_eq!(config.interval_secs, 30);
+
+        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "fast");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.interval_secs, 15, "malformed interval must fall back");
+
+        std::env::set_var("PROMETHEUS_INTERVAL_SECS", "0");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.interval_secs, 15, "zero interval must fall back");
+
+        std::env::set_var("PROMETHEUS_URL", "   ");
+        let config = AgentConfig::from_env();
+        assert_eq!(
+            config.prometheus_url, "http://localhost:9090",
+            "whitespace-only URL must fall back"
+        );
+
+        std::env::remove_var("PROMETHEUS_URL");
+        std::env::remove_var("PROMETHEUS_INTERVAL_SECS");
+    }
 }
