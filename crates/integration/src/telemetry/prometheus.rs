@@ -297,10 +297,13 @@ struct PrometheusVector {
 
 /// Convert a Prometheus float-seconds timestamp to a `DateTime`,
 /// preserving millisecond precision instead of truncating to whole
-/// seconds. Out-of-range timestamps fall back to the epoch (same
-/// behavior the old `unwrap_or_default` had).
+/// seconds. Rounding (not truncating) matters: a float like
+/// 1234567890.123 can multiply out to 1234567890122.9998, and a plain
+/// `as i64` would drop a whole millisecond. Out-of-range timestamps
+/// fall back to the epoch (same behavior the old `unwrap_or_default`
+/// had).
 fn sample_timestamp(ts: f64) -> DateTime<Utc> {
-    DateTime::from_timestamp_millis((ts * 1000.0) as i64).unwrap_or_default()
+    DateTime::from_timestamp_millis((ts * 1000.0).round() as i64).unwrap_or_default()
 }
 
 /// A PromQL sample value. The Prometheus HTTP API always encodes sample
@@ -446,6 +449,24 @@ mod tests {
         assert_eq!(
             metrics[0].timestamp,
             DateTime::from_timestamp_millis(1234567890500).unwrap()
+        );
+    }
+
+    #[test]
+    fn sample_timestamp_rounds_float_milliseconds() {
+        // 1234567890.123 * 1000.0 evaluates to 1234567890122.9998 in
+        // f64; truncation would drop a whole millisecond. Round instead.
+        assert_eq!(
+            sample_timestamp(1234567890.123),
+            DateTime::from_timestamp_millis(1234567890123).unwrap()
+        );
+        assert_eq!(
+            sample_timestamp(1234567890.999),
+            DateTime::from_timestamp_millis(1234567890999).unwrap()
+        );
+        assert_eq!(
+            sample_timestamp(1234567890.0),
+            DateTime::from_timestamp_millis(1234567890000).unwrap()
         );
     }
 
