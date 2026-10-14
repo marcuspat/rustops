@@ -81,7 +81,7 @@ impl AgentConfig {
                 }
             } else {
                 warn!(
-                    "PROMETHEUS_INTERVAL_SECS={!r} is not a number; using default",
+                    "PROMETHEUS_INTERVAL_SECS={} is not a number; using default",
                     raw
                 );
             }
