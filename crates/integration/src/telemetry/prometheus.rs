@@ -107,7 +107,7 @@ impl PrometheusAdapter {
         if let Some(scheme_end) = url.find("://") {
             let rest = &url[scheme_end + 3..];
             let authority_end = rest
-                .find(|c| c == '/' || c == '?' || c == '#')
+                .find(['/', '?', '#'])
                 .unwrap_or(rest.len());
             if let Some(at) = rest[..authority_end].rfind('@') {
                 return format!("{}***@{}", &url[..scheme_end + 3], &rest[at + 1..]);
