@@ -396,10 +396,10 @@ mod tests {
         // so the redactor can always find the userinfo.
         std::env::set_var("PROMETHEUS_URL", "http:user:pass@prometheus:9090");
         let config = AgentConfig::from_env();
-        assert_eq!(config.prometheus_url, "http://user:pass@prometheus:9090");
+        assert_eq!(config.prometheus_url, "http://user:pass@prometheus:9090/");
         assert_eq!(
             redact_url_credentials(&config.prometheus_url),
-            "http://***@prometheus:9090",
+            "http://***@prometheus:9090/",
             "accepted noncanonical URL must redact through config"
         );
 
@@ -448,14 +448,15 @@ mod tests {
     fn redact_url_credentials_strips_userinfo() {
         assert_eq!(
             redact_url_credentials("http://user:pass@prometheus:9090"),
-            "http://***@prometheus:9090"
+            // Url serialization canonicalizes a missing path as "/"
+            "http://***@prometheus:9090/"
         );
         // Url::parse accepts noncanonical scheme-special forms without
         // the double slash; the parse-based redaction must still hide
         // their credentials.
         assert_eq!(
             redact_url_credentials("http:user:pass@prometheus:9090"),
-            "http://***@prometheus:9090",
+            "http://***@prometheus:9090/",
             "noncanonical accepted-by-parse URLs must redact"
         );
         assert_eq!(
