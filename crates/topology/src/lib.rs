@@ -408,9 +408,10 @@ mod tests {
             neo4j_uri: "bolt://localhost:7687".to_string(),
             ..Default::default()
         };
-        let err = TopologyService::new(config)
-            .await
-            .expect_err("explicit Neo4j config must fail construction");
+        let err = match TopologyService::new(config).await {
+            Err(e) => e,
+            Ok(_) => panic!("explicit Neo4j config must fail construction"),
+        };
         assert!(
             err.to_string().contains("not implemented"),
             "error should say the store is not implemented, got: {err}"
