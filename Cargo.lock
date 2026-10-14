@@ -2908,6 +2908,7 @@ version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
+ "reqwest",
  "rustops-common",
  "rustops-integration",
  "rustops-telemetry",
