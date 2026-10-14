@@ -93,6 +93,21 @@ pub struct GraphStatistics {
     pub max_degree: usize,
 }
 
+/// Strip `user:password@` userinfo from a connection URI before it
+/// lands in an error message that may be logged. Only the authority
+/// (between "://" and the first '/' or '?') is considered, so an '@'
+/// elsewhere belongs to the URI and passes through.
+fn redact_uri_userinfo(uri: &str) -> String {
+    if let Some(scheme_end) = uri.find("://") {
+        let rest = &uri[scheme_end + 3..];
+        let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+        if let Some(at) = rest[..authority_end].rfind('@') {
+            return format!("{}***@{}", &uri[..scheme_end + 3], &rest[at + 1..]);
+        }
+    }
+    uri.to_string()
+}
+
 /// Neo4j graph store implementation (stubbed)
 pub struct Neo4jStore {
     /// Connection URI
@@ -125,10 +140,12 @@ impl Neo4jStore {
         // than pretend: a silent `Ok` here would make every write
         // "succeed" and every read come back empty, losing data while
         // looking healthy. Callers see the failure at initialize time.
+        // The URI is redacted because bolt URIs can carry
+        // user:password@ userinfo that must not reach logs.
         Err(Error::graph_database(format!(
             "Neo4j store is not implemented; refusing to connect to {} (topology \
              persistence is in-memory only)",
-            self.uri
+            redact_uri_userinfo(&self.uri)
         )))
     }
 
@@ -656,6 +673,26 @@ mod tests {
         assert!(
             message.contains("not implemented"),
             "error should say the store is not implemented, got: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn neo4j_refusal_redacts_credentials() {
+        // bolt URIs can carry user:password@; the refusal error must not
+        // echo them (it propagates to callers and logs).
+        let store = Neo4jStore::new(
+            "bolt://neo4j:supersecret@graph.internal:7687".to_string(),
+            "neo4j".to_string(),
+            "supersecret".to_string(),
+        );
+        let message = store.connect().await.err().unwrap().to_string();
+        assert!(
+            !message.contains("supersecret"),
+            "refusal error must not contain credentials, got: {message}"
+        );
+        assert!(
+            message.contains("graph.internal:7687"),
+            "host must remain for actionable errors, got: {message}"
         );
     }
 
