@@ -115,7 +115,7 @@ The detector requires at least 8 samples of a metric name in a batch before it s
 
 The agent reads two environment variables, with defaults for anything unset or malformed:
 
-- `PROMETHEUS_URL` — Prometheus server URL, must start with `http://` or `https://` (default `http://localhost:9090`; anything else is rejected without being logged)
+- `PROMETHEUS_URL` — Prometheus server URL; accepted only if it parses as an absolute http(s) URL with a host (default `http://localhost:9090`; anything else is rejected without being logged)
 - `PROMETHEUS_INTERVAL_SECS` — scrape interval in seconds (default `15`)
 
 The topology service runs in-memory by default. `TopologyConfig.neo4j_uri` (empty by default) is the only external-endpoint knob today — a pre-existing naming wart, since a non-empty value also wires Prometheus-backed discovery to that URI — and setting it fails construction, because the Neo4j store behind that field is an unimplemented stub that refuses to connect. The pipeline's Kafka settings are placeholders for the future consumer and are logged as such.

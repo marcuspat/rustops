@@ -59,24 +59,32 @@ impl AgentConfig {
     /// Load configuration from the environment, falling back to
     /// defaults for anything unset or malformed.
     ///
-    /// - `PROMETHEUS_URL` — Prometheus server URL, must start with
-    ///   `http://` or `https://` (e.g. `http://prometheus:9090`);
-    ///   anything else is rejected without being logged
+    /// - `PROMETHEUS_URL` — Prometheus server URL; accepted only if it
+    ///   parses as an absolute http(s) URL with a host (e.g.
+    ///   `http://prometheus:9090`). Anything else is rejected without
+    ///   being logged, so a malformed value can't leak credentials
+    ///   into the startup log
     /// - `PROMETHEUS_INTERVAL_SECS` — scrape interval in seconds
     fn from_env() -> Self {
         let mut config = Self::default();
 
         if let Ok(url) = std::env::var("PROMETHEUS_URL") {
             let url = url.trim().to_string();
-            if url.is_empty() {
-                // keep default
-            } else if url.starts_with("http://") || url.starts_with("https://") {
-                config.prometheus_url = url;
-            } else {
-                // Reject rather than log: a malformed value (e.g. a
-                // schemeless "user:pass@host") could carry credentials,
-                // and the reqwest adapter requires an absolute URL anyway.
-                warn!("PROMETHEUS_URL must start with http:// or https://; using default");
+            // Parse before accepting: a prefix check alone would let
+            // garbage like "http://" (no host) or "https://host:invalid"
+            // (bad port) replace the default, and a schemeless
+            // "user:pass@host" could carry credentials past the
+            // redactor into the startup log. Rejecting without echoing
+            // the value keeps the (possibly secret-bearing) string out
+            // of the log; reqwest needs an absolute URL anyway.
+            match reqwest::Url::parse(&url) {
+                Ok(parsed)
+                    if parsed.has_host()
+                        && (parsed.scheme() == "http" || parsed.scheme() == "https") =>
+                {
+                    config.prometheus_url = url;
+                }
+                _ => warn!("PROMETHEUS_URL is not a valid http(s) URL; using default"),
             }
         }
 
@@ -387,13 +395,22 @@ mod tests {
 
         // A schemeless value could embed credentials ("user:pass@host")
         // that the URL redactor cannot recognize without a scheme; it
-        // must be rejected outright, never logged or used.
-        std::env::set_var("PROMETHEUS_URL", "user:pass@host:9090");
-        let config = AgentConfig::from_env();
-        assert_eq!(
-            config.prometheus_url, "http://localhost:9090",
-            "schemeless URL (credentials-shaped) must fall back to default"
-        );
+        // must be rejected outright, never logged or used. Degenerate
+        // http(s) values (no host, invalid port) must not replace the
+        // default either.
+        for bad in [
+            "user:pass@host:9090",
+            "http://",
+            "https://host:invalid",
+            "ftp://prometheus:9090",
+        ] {
+            std::env::set_var("PROMETHEUS_URL", bad);
+            let config = AgentConfig::from_env();
+            assert_eq!(
+                config.prometheus_url, "http://localhost:9090",
+                "malformed URL {bad:?} must fall back to default"
+            );
+        }
 
         std::env::remove_var("PROMETHEUS_URL");
         std::env::remove_var("PROMETHEUS_INTERVAL_SECS");
