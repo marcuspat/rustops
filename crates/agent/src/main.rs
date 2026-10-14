@@ -74,15 +74,18 @@ impl AgentConfig {
             // garbage like "http://" (no host) or "https://host:invalid"
             // (bad port) replace the default, and a schemeless
             // "user:pass@host" could carry credentials past the
-            // redactor into the startup log. Rejecting without echoing
-            // the value keeps the (possibly secret-bearing) string out
-            // of the log; reqwest needs an absolute URL anyway.
+            // redactor into the startup log. Store the *normalized*
+            // serialization — Url::parse accepts noncanonical forms
+            // like "http:user:pass@host", and the redactor's string
+            // matching assumes "scheme://". Rejecting without echoing
+            // the value keeps bad input out of the log; reqwest needs
+            // an absolute URL anyway.
             match reqwest::Url::parse(&url) {
                 Ok(parsed)
                     if parsed.has_host()
                         && (parsed.scheme() == "http" || parsed.scheme() == "https") =>
                 {
-                    config.prometheus_url = url;
+                    config.prometheus_url = parsed.to_string();
                 }
                 _ => warn!("PROMETHEUS_URL is not a valid http(s) URL; using default"),
             }
@@ -280,12 +283,26 @@ async fn wait_for_shutdown() {
 
 /// Strip any `user:password@` userinfo from a URL before it reaches a
 /// log line. URLs like `http://user:pass@prometheus:9090` would leak
-/// credentials into logs; anything that looks like userinfo is replaced
-/// with `***@`. Malformed or userinfo-free URLs pass through unchanged.
+/// credentials into logs. Parses when possible (covering noncanonical
+/// forms like `http:user:pass@host` that Url accepts); falls back to a
+/// conservative authority match for unparseable strings. Malformed or
+/// userinfo-free URLs pass through unchanged.
 fn redact_url_credentials(url: &str) -> String {
-    // Only the authority (between "://" and the first '/', '?' or '#')
-    // can carry userinfo; an '@' elsewhere (path, query, fragment)
-    // belongs to the URL and must not trigger redaction.
+    if let Ok(parsed) = reqwest::Url::parse(url) {
+        if parsed.has_host() && (parsed.scheme() == "http" || parsed.scheme() == "https") {
+            let mut redacted = parsed;
+            let had_userinfo = !redacted.username().is_empty() || redacted.password().is_some();
+            if had_userinfo {
+                let _ = redacted.set_username("***");
+                let _ = redacted.set_password(None);
+                return redacted.to_string();
+            }
+            return url.to_string();
+        }
+    }
+    // Fallback: only the authority (between "://" and the first '/',
+    // '?' or '#') can carry userinfo; an '@' elsewhere belongs to the
+    // URL and must not trigger redaction.
     if let Some(scheme_end) = url.find("://") {
         let rest = &url[scheme_end + 3..];
         let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
@@ -375,6 +392,17 @@ mod tests {
         assert_eq!(config.prometheus_url, "http://prometheus.internal:9091");
         assert_eq!(config.interval_secs, 30);
 
+        // Noncanonical-but-parseable input is accepted and normalized,
+        // so the redactor can always find the userinfo.
+        std::env::set_var("PROMETHEUS_URL", "http:user:pass@prometheus:9090");
+        let config = AgentConfig::from_env();
+        assert_eq!(config.prometheus_url, "http://user:pass@prometheus:9090");
+        assert_eq!(
+            redact_url_credentials(&config.prometheus_url),
+            "http://***@prometheus:9090",
+            "accepted noncanonical URL must redact through config"
+        );
+
         std::env::set_var("PROMETHEUS_INTERVAL_SECS", "fast");
         let config = AgentConfig::from_env();
         assert_eq!(
@@ -421,6 +449,14 @@ mod tests {
         assert_eq!(
             redact_url_credentials("http://user:pass@prometheus:9090"),
             "http://***@prometheus:9090"
+        );
+        // Url::parse accepts noncanonical scheme-special forms without
+        // the double slash; the parse-based redaction must still hide
+        // their credentials.
+        assert_eq!(
+            redact_url_credentials("http:user:pass@prometheus:9090"),
+            "http://***@prometheus:9090",
+            "noncanonical accepted-by-parse URLs must redact"
         );
         assert_eq!(
             redact_url_credentials("http://user:pass@prometheus:9090/api/v1"),

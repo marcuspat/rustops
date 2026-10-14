@@ -102,8 +102,22 @@ impl PrometheusAdapter {
 
     /// Strip `user:password@` userinfo from a URL before logging it —
     /// basic-auth URLs must not leak credentials into log output.
+    /// Parses when possible (covering noncanonical forms like
+    /// `http:user:pass@host` that Url accepts); falls back to a
+    /// conservative authority match for unparseable strings.
     fn redacted_url(&self) -> String {
         let url = self.config.url.as_str();
+        if let Ok(parsed) = reqwest::Url::parse(url) {
+            if parsed.has_host() && (parsed.scheme() == "http" || parsed.scheme() == "https") {
+                let mut redacted = parsed;
+                if !redacted.username().is_empty() || redacted.password().is_some() {
+                    let _ = redacted.set_username("***");
+                    let _ = redacted.set_password(None);
+                    return redacted.to_string();
+                }
+                return url.to_string();
+            }
+        }
         if let Some(scheme_end) = url.find("://") {
             let rest = &url[scheme_end + 3..];
             let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
