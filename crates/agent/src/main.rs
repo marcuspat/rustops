@@ -128,7 +128,7 @@ impl Agent {
     /// Initialize the agent
     async fn initialize(&mut self) -> Result<(), rustops_common::Error> {
         info!("Initializing RustOps telemetry agent");
-        info!("Prometheus URL: {}", self.config.prometheus_url);
+        info!("Prometheus URL: {}", redact_url_credentials(&self.config.prometheus_url));
         info!("Collection interval: {}s", self.config.interval_secs);
         info!("Service ID: {}", self.config.service_id);
 
