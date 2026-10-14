@@ -264,12 +264,14 @@ async fn wait_for_shutdown() {
 /// credentials into logs; anything that looks like userinfo is replaced
 /// with `***@`. Malformed or userinfo-free URLs pass through unchanged.
 fn redact_url_credentials(url: &str) -> String {
-    // Only the authority (between "://" and the first '/') can carry
-    // userinfo; an '@' elsewhere (path, query) belongs to the URL and
-    // must not trigger redaction.
+    // Only the authority (between "://" and the first '/', '?' or '#')
+    // can carry userinfo; an '@' elsewhere (path, query, fragment)
+    // belongs to the URL and must not trigger redaction.
     if let Some(scheme_end) = url.find("://") {
         let rest = &url[scheme_end + 3..];
-        let authority_end = rest.find('/').unwrap_or(rest.len());
+        let authority_end = rest
+            .find(|c| c == '/' || c == '?' || c == '#')
+            .unwrap_or(rest.len());
         let authority = &rest[..authority_end];
         if let Some(at) = authority.rfind('@') {
             let scheme = &url[..scheme_end + 3];
@@ -403,7 +405,27 @@ mod tests {
         assert_eq!(
             redact_url_credentials("http://host/path?x=user@example.com"),
             "http://host/path?x=user@example.com",
-            "'@' in query/path must not trigger redaction"
+            "'@' in query must not trigger redaction"
+        );
+        assert_eq!(
+            redact_url_credentials("http://host?q=user@example.com"),
+            "http://host?q=user@example.com",
+            "query before any '/' must not be treated as authority"
+        );
+        assert_eq!(
+            redact_url_credentials("http://host#user@example.com"),
+            "http://host#user@example.com",
+            "fragment must not be treated as authority"
+        );
+        assert_eq!(
+            redact_url_credentials("user:pass@host:9090"),
+            "user:pass@host:9090",
+            "no scheme separator: not a URL, pass through"
+        );
+        assert_eq!(
+            redact_url_credentials("http://user:pass@host:9090?q=1#frag"),
+            "http://***@host:9090?q=1#frag",
+            "query and fragment must survive authority redaction"
         );
     }
 }

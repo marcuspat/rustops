@@ -388,6 +388,15 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn default_config_builds_in_memory_service() {
+        // The default must construct cleanly: neo4j_uri defaults to empty
+        // (in-memory), so nothing tries to reach the refusing Neo4j stub.
+        let config = TopologyConfig::default();
+        assert!(config.neo4j_uri.is_empty());
+        TopologyService::new(config).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn test_topology_service_builder() {
         let service = TopologyServiceBuilder::new()
             .with_discovery_interval(60)
