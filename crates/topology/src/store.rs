@@ -93,6 +93,24 @@ pub struct GraphStatistics {
     pub max_degree: usize,
 }
 
+/// Strip `user:password@` userinfo from a connection URI before it
+/// lands in an error message that may be logged. Only the authority
+/// (between "://" and the first '/' or '?') is considered, so an '@'
+/// elsewhere belongs to the URI and passes through. Schemeless inputs
+/// are treated as authority-shaped from the start: over-redacting a
+/// malformed URI is harmless, echoing its credentials is not.
+fn redact_uri_userinfo(uri: &str) -> String {
+    let (prefix, rest) = match uri.find("://") {
+        Some(i) => (&uri[..i + 3], &uri[i + 3..]),
+        None => ("", uri),
+    };
+    let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+    if let Some(at) = rest[..authority_end].rfind('@') {
+        return format!("{prefix}***@{}", &rest[at + 1..]);
+    }
+    uri.to_string()
+}
+
 /// Neo4j graph store implementation (stubbed)
 pub struct Neo4jStore {
     /// Connection URI
@@ -121,10 +139,17 @@ impl Neo4jStore {
 
     /// Connect to Neo4j
     async fn connect(&self) -> Result<()> {
-        // In a real implementation, this would establish connection using neo4rs
-        debug!("Connecting to Neo4j at: {}", self.uri);
-        info!("Neo4j connection established (stubbed)");
-        Ok(())
+        // There is no Neo4j client behind this struct yet. Refuse rather
+        // than pretend: a silent `Ok` here would make every write
+        // "succeed" and every read come back empty, losing data while
+        // looking healthy. Callers see the failure at initialize time.
+        // The URI is redacted because bolt URIs can carry
+        // user:password@ userinfo that must not reach logs.
+        Err(Error::graph_database(format!(
+            "Neo4j store is not implemented; refusing to connect to {} (topology \
+             persistence is in-memory only)",
+            redact_uri_userinfo(&self.uri)
+        )))
     }
 
     /// Create indexes for performance
@@ -642,7 +667,49 @@ mod tests {
         let config = Neo4jConfig::default();
         let store = Neo4jStore::new(config.uri, config.username, config.password);
 
-        assert!(store.connect().await.is_ok());
+        // The store has no client behind it, so it must refuse to connect
+        // (README: "refuses to connect rather than pretending"). A silent
+        // Ok would make writes "succeed" and reads return empty.
+        let result = store.connect().await;
+        assert!(result.is_err());
+        let message = result.err().unwrap().to_string();
+        assert!(
+            message.contains("not implemented"),
+            "error should say the store is not implemented, got: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn neo4j_refusal_redacts_credentials() {
+        // bolt URIs can carry user:password@; the refusal error must not
+        // echo them (it propagates to callers and logs).
+        let store = Neo4jStore::new(
+            "bolt://neo4j:supersecret@graph.internal:7687".to_string(),
+            "neo4j".to_string(),
+            "supersecret".to_string(),
+        );
+        let message = store.connect().await.err().unwrap().to_string();
+        assert!(
+            !message.contains("supersecret"),
+            "refusal error must not contain credentials, got: {message}"
+        );
+        assert!(
+            message.contains("graph.internal:7687"),
+            "host must remain for actionable errors, got: {message}"
+        );
+
+        // Malformed schemeless URIs must redact too — the '@' may still
+        // be credential-shaped.
+        let store = Neo4jStore::new(
+            "neo4j:supersecret@graph.internal:7687".to_string(),
+            "neo4j".to_string(),
+            "supersecret".to_string(),
+        );
+        let message = store.connect().await.err().unwrap().to_string();
+        assert!(
+            !message.contains("supersecret"),
+            "schemeless URI credentials must be redacted, got: {message}"
+        );
     }
 
     #[tokio::test]

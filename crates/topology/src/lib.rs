@@ -66,7 +66,11 @@ pub struct TopologyConfig {
 impl Default for TopologyConfig {
     fn default() -> Self {
         Self {
-            neo4j_uri: "bolt://localhost:7687".to_string(),
+            // Empty = in-memory topology, which is the only real
+            // persistence today. A non-empty URI now fails construction
+            // because the Neo4j store refuses to connect rather than
+            // pretend — set one only when a real store exists.
+            neo4j_uri: String::new(),
             neo4j_username: "neo4j".to_string(),
             neo4j_password: "neo4j".to_string(),
             discovery_interval_secs: 300,
@@ -384,6 +388,15 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn default_config_builds_in_memory_service() {
+        // The default must construct cleanly: neo4j_uri defaults to empty
+        // (in-memory), so nothing tries to reach the refusing Neo4j stub.
+        let config = TopologyConfig::default();
+        assert!(config.neo4j_uri.is_empty());
+        TopologyService::new(config).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn test_topology_service_builder() {
         let service = TopologyServiceBuilder::new()
             .with_discovery_interval(60)
@@ -394,6 +407,24 @@ mod tests {
 
         assert_eq!(service.config.discovery_interval_secs, 60);
         assert_eq!(service.config.max_blast_radius_hops, 3);
+    }
+
+    #[tokio::test]
+    async fn explicit_neo4j_config_fails_construction_loudly() {
+        // The Neo4j store is a stub that refuses to connect; asking for
+        // it must surface that at construction, not silently no-op.
+        let config = TopologyConfig {
+            neo4j_uri: "bolt://localhost:7687".to_string(),
+            ..Default::default()
+        };
+        let err = match TopologyService::new(config).await {
+            Err(e) => e,
+            Ok(_) => panic!("explicit Neo4j config must fail construction"),
+        };
+        assert!(
+            err.to_string().contains("not implemented"),
+            "error should say the store is not implemented, got: {err}"
+        );
     }
 
     #[test]

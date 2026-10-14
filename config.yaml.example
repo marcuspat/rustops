@@ -550,7 +550,8 @@ development:
 # KAFKA_BROKERS               - Comma-separated Kafka broker addresses
 # NEO4J_URI                  - Neo4j connection URI
 # NEO4J_PASSWORD              - Neo4j database password
-# PROMETHEUS_URL              - Prometheus server URL
+# PROMETHEUS_URL              - Prometheus server URL (agent)
+# PROMETHEUS_INTERVAL_SECS    - Agent scrape interval in seconds
 # RUSTOPS_CONFIG_PATH         - Path to config file
 # RUSTOPS_NEO4J_PASSWORD      - Neo4j password (safer than in config)
 # RUSTOPS_JWT_SECRET          - JWT signing secret

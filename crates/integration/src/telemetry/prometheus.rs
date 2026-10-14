@@ -92,13 +92,40 @@ impl PrometheusAdapter {
     }
 
     /// Parse metric value from Prometheus response
-    #[allow(dead_code)] // stub retained by rescue pass
     fn parse_metric_value(value: serde_json::Value) -> Option<f64> {
         match value {
             serde_json::Value::Number(n) => n.as_f64(),
             serde_json::Value::String(s) => s.parse().ok(),
             _ => None,
         }
+    }
+
+    /// Strip `user:password@` userinfo from a URL before logging it —
+    /// basic-auth URLs must not leak credentials into log output.
+    /// Parses when possible (covering noncanonical forms like
+    /// `http:user:pass@host` that Url accepts); falls back to a
+    /// conservative authority match for unparseable strings.
+    fn redacted_url(&self) -> String {
+        let url = self.config.url.as_str();
+        if let Ok(parsed) = reqwest::Url::parse(url) {
+            if parsed.has_host() && (parsed.scheme() == "http" || parsed.scheme() == "https") {
+                let mut redacted = parsed;
+                if !redacted.username().is_empty() || redacted.password().is_some() {
+                    let _ = redacted.set_username("***");
+                    let _ = redacted.set_password(None);
+                    return redacted.to_string();
+                }
+                return url.to_string();
+            }
+        }
+        if let Some(scheme_end) = url.find("://") {
+            let rest = &url[scheme_end + 3..];
+            let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+            if let Some(at) = rest[..authority_end].rfind('@') {
+                return format!("{}***@{}", &url[..scheme_end + 3], &rest[at + 1..]);
+            }
+        }
+        url.to_string()
     }
 }
 
@@ -147,19 +174,25 @@ impl TelemetryCollector for PrometheusAdapter {
                                 .map(move |(ts, value)| Metric {
                                     name: name.clone(),
                                     labels: matrix.metric.clone(),
-                                    value,
-                                    timestamp: DateTime::from_timestamp(ts as i64, 0)
-                                        .unwrap_or_default(),
+                                    value: value.0,
+                                    // Prometheus timestamps are float
+                                    // seconds; keep the fractional part
+                                    // rather than truncating to whole
+                                    // seconds.
+                                    timestamp: sample_timestamp(ts),
                                 })
                                 .collect::<Vec<_>>()
                                 .into_iter(),
-                            PrometheusResult::Vector(vector) => vec![Metric {
-                                name: name.clone(),
-                                labels: vector.metric,
-                                value: vector.value,
-                                timestamp: Utc::now(),
-                            }]
-                            .into_iter(),
+                            PrometheusResult::Vector(vector) => {
+                                let (ts, value) = vector.value;
+                                vec![Metric {
+                                    name: name.clone(),
+                                    labels: vector.metric,
+                                    value: value.0,
+                                    timestamp: sample_timestamp(ts),
+                                }]
+                                .into_iter()
+                            }
                         }
                     })
                     .collect();
@@ -217,7 +250,7 @@ impl crate::adapter::IntegrationAdapter for PrometheusAdapter {
     }
 
     async fn initialize(&mut self) -> IntegrationResult<()> {
-        info!("Initializing Prometheus adapter: {}", self.config.url);
+        info!("Initializing Prometheus adapter: {}", self.redacted_url());
         self.health_check().await?;
         Ok(())
     }
@@ -263,14 +296,49 @@ enum PrometheusResult {
 #[derive(Debug, serde::Deserialize, Clone)]
 struct PrometheusMatrix {
     pub metric: HashMap<String, String>,
-    pub values: Vec<(f64, f64)>, // (timestamp, value)
+    pub values: Vec<(f64, SampleValue)>, // (timestamp, value)
 }
 
 #[derive(Debug, serde::Deserialize, Clone)]
 struct PrometheusVector {
     pub metric: HashMap<String, String>,
-    #[serde(rename = "value")]
-    pub value: f64,
+    // Instant sample: [timestamp, "value"] — Prometheus encodes the
+    // value as a string, so this is a pair, not a bare number.
+    pub value: (f64, SampleValue),
+}
+
+/// Convert a Prometheus float-seconds timestamp to a `DateTime`,
+/// preserving millisecond precision instead of truncating to whole
+/// seconds. Rounding (not truncating) matters: a float like
+/// 1234567890.123 can multiply out to 1234567890122.9998, and a plain
+/// `as i64` would drop a whole millisecond. Out-of-range timestamps
+/// fall back to the epoch (same behavior the old `unwrap_or_default`
+/// had).
+fn sample_timestamp(ts: f64) -> DateTime<Utc> {
+    DateTime::from_timestamp_millis((ts * 1000.0).round() as i64).unwrap_or_default()
+}
+
+/// A PromQL sample value. The Prometheus HTTP API always encodes sample
+/// values as JSON strings ("1", "0.5", "NaN", "+Inf") — never bare
+/// numbers — so an `f64` field fails deserialization against every real
+/// server. Bare numbers are still accepted so hand-rolled fixtures that
+/// predate this keep working.
+#[derive(Debug, Clone, Copy)]
+struct SampleValue(f64);
+
+impl<'de> serde::Deserialize<'de> for SampleValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        match PrometheusAdapter::parse_metric_value(raw) {
+            Some(value) => Ok(Self(value)),
+            None => Err(serde::de::Error::custom(
+                "sample value must be a number or a numeric string",
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -291,6 +359,9 @@ mod tests {
         // unmatched, which `IntegrationResult` surfaces as an error -
         // failing `assert!(result.is_ok())` regardless of the response body
         // configured below.
+        //
+        // The body below mirrors the real Prometheus HTTP API: sample
+        // values are JSON *strings* ("1", "NaN", "+Inf"), not numbers.
         Mock::given(method("GET"))
             .and(path("/api/v1/query_range"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -299,7 +370,10 @@ mod tests {
                     "resultType": "matrix",
                     "result": [{
                         "metric": {"__name__": "up", "job": "prometheus"},
-                        "values": [[1234567890.0, 1.0]]
+                        "values": [
+                            [1234567890.25, "1"],
+                            [1234567950.75, "NaN"]
+                        ]
                     }]
                 }
             })))
@@ -329,7 +403,86 @@ mod tests {
         assert!(result.is_ok());
 
         let metrics = result.unwrap();
-        assert!(!metrics.is_empty());
+        assert_eq!(metrics.len(), 2);
+        assert_eq!(metrics[0].name, "up");
+        assert_eq!(metrics[0].value, 1.0);
+        assert_eq!(
+            metrics[0].timestamp,
+            DateTime::from_timestamp_millis(1234567890250).unwrap(),
+            "fractional timestamps must survive to millisecond precision"
+        );
+        assert!(
+            metrics[1].value.is_nan(),
+            "NaN samples must parse to f64::NAN"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_prometheus_query_vector_shaped_response() {
+        // A range query over an instant-vector expression returns a
+        // `vector` resultType, where each entry carries a single
+        // `[timestamp, "value"]` sample. Real Prometheus sends the value
+        // as a string there too.
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/v1/query_range"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "success",
+                "data": {
+                    "resultType": "vector",
+                    "result": [{
+                        "metric": {"__name__": "up", "job": "prometheus"},
+                        "value": [1234567890.5, "0.5"]
+                    }]
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = PrometheusConfig {
+            url: mock_server.uri(),
+            username: None,
+            password: None,
+            bearer_token: None,
+            timeout: std::time::Duration::from_secs(5),
+        };
+
+        let adapter = PrometheusAdapter::new(config);
+
+        let query = MetricQuery {
+            metric_name: "up".to_string(),
+            labels: HashMap::new(),
+            start_time: Utc::now() - chrono::Duration::hours(1),
+            end_time: Utc::now(),
+            step: Some(60),
+        };
+
+        let metrics = adapter.collect_metrics(query).await.unwrap();
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].value, 0.5);
+        assert_eq!(
+            metrics[0].timestamp,
+            DateTime::from_timestamp_millis(1234567890500).unwrap()
+        );
+    }
+
+    #[test]
+    fn sample_timestamp_rounds_float_milliseconds() {
+        // 1234567890.123 * 1000.0 evaluates to 1234567890122.9998 in
+        // f64; truncation would drop a whole millisecond. Round instead.
+        assert_eq!(
+            sample_timestamp(1234567890.123),
+            DateTime::from_timestamp_millis(1234567890123).unwrap()
+        );
+        assert_eq!(
+            sample_timestamp(1234567890.999),
+            DateTime::from_timestamp_millis(1234567890999).unwrap()
+        );
+        assert_eq!(
+            sample_timestamp(1234567890.0),
+            DateTime::from_timestamp_millis(1234567890000).unwrap()
+        );
     }
 
     #[tokio::test]
