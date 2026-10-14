@@ -96,14 +96,17 @@ pub struct GraphStatistics {
 /// Strip `user:password@` userinfo from a connection URI before it
 /// lands in an error message that may be logged. Only the authority
 /// (between "://" and the first '/' or '?') is considered, so an '@'
-/// elsewhere belongs to the URI and passes through.
+/// elsewhere belongs to the URI and passes through. Schemeless inputs
+/// are treated as authority-shaped from the start: over-redacting a
+/// malformed URI is harmless, echoing its credentials is not.
 fn redact_uri_userinfo(uri: &str) -> String {
-    if let Some(scheme_end) = uri.find("://") {
-        let rest = &uri[scheme_end + 3..];
-        let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
-        if let Some(at) = rest[..authority_end].rfind('@') {
-            return format!("{}***@{}", &uri[..scheme_end + 3], &rest[at + 1..]);
-        }
+    let (prefix, rest) = match uri.find("://") {
+        Some(i) => (&uri[..i + 3], &uri[i + 3..]),
+        None => ("", uri),
+    };
+    let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+    if let Some(at) = rest[..authority_end].rfind('@') {
+        return format!("{prefix}***@{}", &rest[at + 1..]);
     }
     uri.to_string()
 }
@@ -693,6 +696,19 @@ mod tests {
         assert!(
             message.contains("graph.internal:7687"),
             "host must remain for actionable errors, got: {message}"
+        );
+
+        // Malformed schemeless URIs must redact too — the '@' may still
+        // be credential-shaped.
+        let store = Neo4jStore::new(
+            "neo4j:supersecret@graph.internal:7687".to_string(),
+            "neo4j".to_string(),
+            "supersecret".to_string(),
+        );
+        let message = store.connect().await.err().unwrap().to_string();
+        assert!(
+            !message.contains("supersecret"),
+            "schemeless URI credentials must be redacted, got: {message}"
         );
     }
 
