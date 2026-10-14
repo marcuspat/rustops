@@ -99,6 +99,20 @@ impl PrometheusAdapter {
             _ => None,
         }
     }
+
+    /// Strip `user:password@` userinfo from a URL before logging it —
+    /// basic-auth URLs must not leak credentials into log output.
+    fn redacted_url(&self) -> String {
+        let url = self.config.url.as_str();
+        if let Some(scheme_end) = url.find("://") {
+            let rest = &url[scheme_end + 3..];
+            let authority_end = rest.find('/').unwrap_or(rest.len());
+            if let Some(at) = rest[..authority_end].rfind('@') {
+                return format!("{}***@{}", &url[..scheme_end + 3], &rest[at + 1..]);
+            }
+        }
+        url.to_string()
+    }
 }
 
 #[async_trait]
@@ -219,20 +233,6 @@ impl crate::adapter::IntegrationAdapter for PrometheusAdapter {
                 Ok(HealthStatus::Unhealthy)
             }
         }
-    }
-
-    /// Strip `user:password@` userinfo from a URL before logging it —
-    /// basic-auth URLs must not leak credentials into log output.
-    fn redacted_url(&self) -> String {
-        let url = self.config.url.as_str();
-        if let Some(scheme_end) = url.find("://") {
-            let rest = &url[scheme_end + 3..];
-            let authority_end = rest.find('/').unwrap_or(rest.len());
-            if let Some(at) = rest[..authority_end].rfind('@') {
-                return format!("{}***@{}", &url[..scheme_end + 3], &rest[at + 1..]);
-            }
-        }
-        url.to_string()
     }
 
     async fn initialize(&mut self) -> IntegrationResult<()> {
