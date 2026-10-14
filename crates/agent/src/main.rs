@@ -259,6 +259,26 @@ async fn wait_for_shutdown() {
     }
 }
 
+/// Strip any `user:password@` userinfo from a URL before it reaches a
+/// log line. URLs like `http://user:pass@prometheus:9090` would leak
+/// credentials into logs; anything that looks like userinfo is replaced
+/// with `***@`. Malformed or userinfo-free URLs pass through unchanged.
+fn redact_url_credentials(url: &str) -> String {
+    // Only the authority (between "://" and the first '/') can carry
+    // userinfo; an '@' elsewhere (path, query) belongs to the URL and
+    // must not trigger redaction.
+    if let Some(scheme_end) = url.find("://") {
+        let rest = &url[scheme_end + 3..];
+        let authority_end = rest.find('/').unwrap_or(rest.len());
+        let authority = &rest[..authority_end];
+        if let Some(at) = authority.rfind('@') {
+            let scheme = &url[..scheme_end + 3];
+            return format!("{scheme}***@{}", &rest[at + 1..]);
+        }
+    }
+    url.to_string()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
@@ -277,7 +297,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AgentConfig::from_env();
     info!(
         "Agent config: prometheus={} interval={}s",
-        config.prometheus_url, config.interval_secs
+        redact_url_credentials(&config.prometheus_url),
+        config.interval_secs
     );
 
     // Create and initialize agent
@@ -352,5 +373,37 @@ mod tests {
 
         std::env::remove_var("PROMETHEUS_URL");
         std::env::remove_var("PROMETHEUS_INTERVAL_SECS");
+    }
+
+    #[test]
+    fn redact_url_credentials_strips_userinfo() {
+        assert_eq!(
+            redact_url_credentials("http://user:pass@prometheus:9090"),
+            "http://***@prometheus:9090"
+        );
+        assert_eq!(
+            redact_url_credentials("http://user:pass@prometheus:9090/api/v1"),
+            "http://***@prometheus:9090/api/v1",
+            "host and path must survive redaction"
+        );
+        assert_eq!(
+            redact_url_credentials("https://alice@prom.example.com/api"),
+            "https://***@prom.example.com/api"
+        );
+        assert_eq!(
+            redact_url_credentials("http://localhost:9090"),
+            "http://localhost:9090",
+            "userinfo-free URLs must pass through unchanged"
+        );
+        assert_eq!(
+            redact_url_credentials("not a url"),
+            "not a url",
+            "malformed input must pass through, not panic"
+        );
+        assert_eq!(
+            redact_url_credentials("http://host/path?x=user@example.com"),
+            "http://host/path?x=user@example.com",
+            "'@' in query/path must not trigger redaction"
+        );
     }
 }

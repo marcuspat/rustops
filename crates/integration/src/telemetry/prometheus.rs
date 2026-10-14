@@ -3,7 +3,7 @@
 // Implements Prometheus scrape and Remote Write protocols
 
 use async_trait::async_trait;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use reqwest::Client;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
@@ -147,8 +147,11 @@ impl TelemetryCollector for PrometheusAdapter {
                                     name: name.clone(),
                                     labels: matrix.metric.clone(),
                                     value: value.0,
-                                    timestamp: DateTime::from_timestamp(ts as i64, 0)
-                                        .unwrap_or_default(),
+                                    // Prometheus timestamps are float
+                                    // seconds; keep the fractional part
+                                    // rather than truncating to whole
+                                    // seconds.
+                                    timestamp: sample_timestamp(ts),
                                 })
                                 .collect::<Vec<_>>()
                                 .into_iter(),
@@ -158,8 +161,7 @@ impl TelemetryCollector for PrometheusAdapter {
                                     name: name.clone(),
                                     labels: vector.metric,
                                     value: value.0,
-                                    timestamp: DateTime::from_timestamp(ts as i64, 0)
-                                        .unwrap_or_default(),
+                                    timestamp: sample_timestamp(ts),
                                 }]
                                 .into_iter()
                             }
@@ -219,8 +221,22 @@ impl crate::adapter::IntegrationAdapter for PrometheusAdapter {
         }
     }
 
+    /// Strip `user:password@` userinfo from a URL before logging it —
+    /// basic-auth URLs must not leak credentials into log output.
+    fn redacted_url(&self) -> String {
+        let url = self.config.url.as_str();
+        if let Some(scheme_end) = url.find("://") {
+            let rest = &url[scheme_end + 3..];
+            let authority_end = rest.find('/').unwrap_or(rest.len());
+            if let Some(at) = rest[..authority_end].rfind('@') {
+                return format!("{}***@{}", &url[..scheme_end + 3], &rest[at + 1..]);
+            }
+        }
+        url.to_string()
+    }
+
     async fn initialize(&mut self) -> IntegrationResult<()> {
-        info!("Initializing Prometheus adapter: {}", self.config.url);
+        info!("Initializing Prometheus adapter: {}", self.redacted_url());
         self.health_check().await?;
         Ok(())
     }
@@ -277,6 +293,14 @@ struct PrometheusVector {
     pub value: (f64, SampleValue),
 }
 
+/// Convert a Prometheus float-seconds timestamp to a `DateTime`,
+/// preserving millisecond precision instead of truncating to whole
+/// seconds. Out-of-range timestamps fall back to the epoch (same
+/// behavior the old `unwrap_or_default` had).
+fn sample_timestamp(ts: f64) -> DateTime<Utc> {
+    DateTime::from_timestamp_millis((ts * 1000.0) as i64).unwrap_or_default()
+}
+
 /// A PromQL sample value. The Prometheus HTTP API always encodes sample
 /// values as JSON strings ("1", "0.5", "NaN", "+Inf") — never bare
 /// numbers — so an `f64` field fails deserialization against every real
@@ -303,7 +327,6 @@ impl<'de> serde::Deserialize<'de> for SampleValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::adapter::IntegrationAdapter;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -331,8 +354,8 @@ mod tests {
                     "result": [{
                         "metric": {"__name__": "up", "job": "prometheus"},
                         "values": [
-                            [1234567890.0, "1"],
-                            [1234567950.0, "NaN"]
+                            [1234567890.25, "1"],
+                            [1234567950.75, "NaN"]
                         ]
                     }]
                 }
@@ -368,7 +391,8 @@ mod tests {
         assert_eq!(metrics[0].value, 1.0);
         assert_eq!(
             metrics[0].timestamp,
-            DateTime::from_timestamp(1234567890, 0).unwrap()
+            DateTime::from_timestamp_millis(1234567890250).unwrap(),
+            "fractional timestamps must survive to millisecond precision"
         );
         assert!(metrics[1].value.is_nan(), "NaN samples must parse to f64::NAN");
     }
@@ -389,7 +413,7 @@ mod tests {
                     "resultType": "vector",
                     "result": [{
                         "metric": {"__name__": "up", "job": "prometheus"},
-                        "value": [1234567890.0, "0.5"]
+                        "value": [1234567890.5, "0.5"]
                     }]
                 }
             })))
@@ -419,7 +443,7 @@ mod tests {
         assert_eq!(metrics[0].value, 0.5);
         assert_eq!(
             metrics[0].timestamp,
-            DateTime::from_timestamp(1234567890, 0).unwrap()
+            DateTime::from_timestamp_millis(1234567890500).unwrap()
         );
     }
 
