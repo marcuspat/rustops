@@ -128,7 +128,10 @@ impl Agent {
     /// Initialize the agent
     async fn initialize(&mut self) -> Result<(), rustops_common::Error> {
         info!("Initializing RustOps telemetry agent");
-        info!("Prometheus URL: {}", redact_url_credentials(&self.config.prometheus_url));
+        info!(
+            "Prometheus URL: {}",
+            redact_url_credentials(&self.config.prometheus_url)
+        );
         info!("Collection interval: {}s", self.config.interval_secs);
         info!("Service ID: {}", self.config.service_id);
 
@@ -269,9 +272,7 @@ fn redact_url_credentials(url: &str) -> String {
     // belongs to the URL and must not trigger redaction.
     if let Some(scheme_end) = url.find("://") {
         let rest = &url[scheme_end + 3..];
-        let authority_end = rest
-            .find(['/', '?', '#'])
-            .unwrap_or(rest.len());
+        let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
         let authority = &rest[..authority_end];
         if let Some(at) = authority.rfind('@') {
             let scheme = &url[..scheme_end + 3];
@@ -360,7 +361,10 @@ mod tests {
 
         std::env::set_var("PROMETHEUS_INTERVAL_SECS", "fast");
         let config = AgentConfig::from_env();
-        assert_eq!(config.interval_secs, 15, "malformed interval must fall back");
+        assert_eq!(
+            config.interval_secs, 15,
+            "malformed interval must fall back"
+        );
 
         std::env::set_var("PROMETHEUS_INTERVAL_SECS", "0");
         let config = AgentConfig::from_env();
