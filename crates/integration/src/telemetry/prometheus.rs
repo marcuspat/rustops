@@ -3,7 +3,7 @@
 // Implements Prometheus scrape and Remote Write protocols
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use reqwest::Client;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
@@ -303,6 +303,7 @@ impl<'de> serde::Deserialize<'de> for SampleValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use crate::adapter::IntegrationAdapter;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
