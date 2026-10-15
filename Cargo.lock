@@ -2900,11 +2900,11 @@ dependencies = [
 
 [[package]]
 name = "rustops"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "rustops-agent"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2919,7 +2919,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-anomaly"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2939,7 +2939,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-api"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -2960,7 +2960,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-common"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2980,7 +2980,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-incident"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-integration"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3032,7 +3032,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-knowledge"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3050,7 +3050,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-pipeline"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3070,7 +3070,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-remediation"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3089,7 +3089,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-telemetry"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3108,7 +3108,7 @@ dependencies = [
 
 [[package]]
 name = "rustops-topology"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
