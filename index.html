@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>rustops — marcuspat</title>
+<meta name="description" content="Early-stage AIOps toolkit in Rust: Z-score/IQR anomaly detection, alert correlation, event-sourced incidents, Prometheus pipeline.">
+<link rel="canonical" href="https://marcuspat.github.io/rustops/">
+<meta property="og:title" content="rustops">
+<meta property="og:description" content="Early-stage AIOps toolkit in Rust: Z-score/IQR anomaly detection, alert correlation, event-sourced incidents, Prometheus pipeline.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://marcuspat.github.io/rustops/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="rustops">
+<meta name="twitter:description" content="Early-stage AIOps toolkit in Rust: Z-score/IQR anomaly detection, alert correlation, event-sourced incidents, Prometheus pipeline.">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='#22d3ee' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='5' fill='#a78bfa'/%3E%3C/svg%3E">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#060a12;--ink:#e8eef7;--mut:#8b98ac;--a1:#22d3ee;--a2:#a78bfa;--card:rgba(255,255,255,.035);--line:rgba(255,255,255,.09)}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
+code,pre,.mono{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+.nav{position:sticky;top:0;z-index:9;display:flex;justify-content:space-between;align-items:center;padding:14px 28px;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:.2px;font-size:15px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--a1);box-shadow:0 0 10px var(--a1);animation:pulse 3s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
+.nav nav{display:flex;gap:8px;align-items:center}
+a{color:inherit;text-decoration:none}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;font-weight:560;color:var(--ink);transition:border-color .18s,transform .18s,background .18s;background:transparent}
+.btn:hover{border-color:var(--a1);transform:translateY(-1px)}
+.btn.primary{background:linear-gradient(135deg,var(--a1),var(--a2));border:none;color:#04121a;font-weight:700}
+.btn.primary:hover{filter:brightness(1.1)}
+.hero{position:relative;min-height:clamp(420px,58vh,560px);display:flex;align-items:center;justify-content:center;overflow:hidden;text-align:center}
+.hero-art{position:absolute;inset:0}
+.hero-art svg{width:100%;height:100%;display:block}
+.hero-inner{position:relative;z-index:2;max-width:880px;padding:56px 26px 40px}
+.eyebrow{font-family:ui-monospace,Menlo,monospace;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:var(--a1);opacity:.92}
+h1{font-size:clamp(40px,7vw,68px);font-weight:800;letter-spacing:-1px;margin:10px 0 14px;background:linear-gradient(100deg,var(--a1) 0%,#fff 52%,var(--a2) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.tagline{font-size:clamp(16px,2.3vw,19.5px);color:var(--mut);max-width:720px;margin:0 auto 22px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:26px}
+.chip{font-family:ui-monospace,Menlo,monospace;font-size:12px;padding:4px 11px;border:1px solid var(--line);border-radius:99px;color:var(--mut);background:rgba(255,255,255,.02)}
+.chip:hover{color:var(--a1);border-color:var(--a1)}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:30px}
+.stats{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--mut)}
+.stats b{color:var(--ink);font-weight:640}
+.lang-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+main{max-width:1020px;margin:0 auto;padding:26px 26px 40px}
+section{margin:44px 0}
+h2{font-size:14px;font-family:ui-monospace,Menlo,monospace;letter-spacing:2.5px;text-transform:uppercase;color:var(--a1);margin-bottom:20px}
+h2::before{content:'// ';color:var(--mut)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;transition:transform .2s,border-color .2s}
+.card:hover{transform:translateY(-3px);border-color:color-mix(in srgb,var(--a1) 55%,var(--line))}
+.card h3{font-size:16px;margin-bottom:9px;color:var(--ink)}
+.card p{font-size:13.8px;color:var(--mut)}
+.install pre{background:#0a0f16;border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;overflow:auto}
+.install code{font-size:14px;color:var(--a1);white-space:nowrap}
+.install .copy{border:1px solid var(--line);background:transparent;color:var(--mut);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;transition:all .15s;flex-shrink:0}
+.install .copy:hover{color:var(--a1);border-color:var(--a1)}
+.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.links a{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border:1px solid var(--line);border-radius:11px;font-size:13.5px;background:var(--card);transition:border-color .15s,transform .15s}
+.links a:hover{border-color:var(--a1);transform:translateX(3px)}
+.links a span.arr{color:var(--a1)}
+footer{border-top:1px solid var(--line);padding:30px 26px 44px;text-align:center;color:var(--mut);font-size:13px}
+footer .orgs{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin-bottom:12px}
+footer a:hover{color:var(--a1)}
+@media(max-width:640px){.nav{padding:12px 16px}.hero-inner{padding:44px 18px 32px}.stats{gap:14px}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition:none !important}}
+</style>
+<style>details{border:1px solid var(--line);border-radius:11px;padding:14px 18px;background:var(--card)}details+details{margin-top:10px}summary{cursor:pointer;font-weight:600;font-size:14.5px}summary:hover{color:var(--a1)}details p{margin-top:10px;font-size:13.8px;color:var(--mut)}</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "SoftwareSourceCode", "name": "rustops", "description": "Early-stage AIOps toolkit in Rust: Z-score/IQR anomaly detection, alert correlation, event-sourced incidents, Prometheus pipeline.", "url": "https://marcuspat.github.io/rustops/", "codeRepository": "https://github.com/marcuspat/rustops", "programmingLanguage": "Rust", "keywords": "aiops, alerting, anomaly-detection, automation, cqrs, devops, event-sourcing, incident-management, it-operations, monitoring, observability, prometheus", "author": {"@type": "Person", "name": "marcuspat", "url": "https://github.com/marcuspat"}, "maintainer": {"@type": "Person", "name": "marcuspat", "url": "https://github.com/marcuspat"}, "dateModified": "2026-10-15T05:10:42Z", "version": "v0.1.2", "isAccessibleForFree": true, "license": "https://github.com/marcuspat/rustops/blob/HEAD/LICENSE"}, {"@type": "WebSite", "name": "rustops — marcuspat", "url": "https://marcuspat.github.io/rustops/", "publisher": {"@type": "Person", "name": "marcuspat"}}, {"@type": "Person", "name": "marcuspat", "url": "https://github.com/marcuspat", "description": "Agentic Engineer — Platform Engineering × AI-assisted development"}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "What is rustops?", "acceptedAnswer": {"@type": "Answer", "text": "Early-stage AIOps toolkit in Rust: Z-score/IQR anomaly detection, alert correlation, event-sourced incidents, Prometheus pipeline."}}, {"@type": "Question", "name": "Who maintains rustops?", "acceptedAnswer": {"@type": "Answer", "text": "marcuspat — Agentic Engineer — Platform Engineering × AI-assisted development. Source code and issues live on GitHub at github.com/marcuspat/rustops."}}, {"@type": "Question", "name": "How do I try rustops?", "acceptedAnswer": {"@type": "Answer", "text": "Clone or fork the repository at github.com/marcuspat/rustops and follow the README setup instructions."}}]}</script>
+</head>
+<body>
+<header class="nav">
+  <div class="brand"><span class="dot"></span>rustops</div>
+  <nav>
+    <a class="btn" href="https://github.com/marcuspat">marcuspat</a>
+    <a class="btn primary" href="https://github.com/marcuspat/rustops">GitHub ↗</a>
+  </nav>
+</header>
+<section class="hero">
+<div class="hero-art">
+<svg viewBox="0 0 1200 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<defs>
+<radialGradient id="g1" cx="0.22" cy="0.28" r="0.75"><stop offset="0" stop-color="#22d3ee" stop-opacity="0.34"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>
+<radialGradient id="g2" cx="0.82" cy="0.75" r="0.7"><stop offset="0" stop-color="#a78bfa" stop-opacity="0.26"/><stop offset="1" stop-color="#a78bfa" stop-opacity="0"/></radialGradient>
+<radialGradient id="core"><stop offset="0" stop-color="#22d3ee" stop-opacity="0.95"/><stop offset="0.5" stop-color="#22d3ee" stop-opacity="0.3"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>
+<filter id="soft"><feGaussianBlur stdDeviation="26"/></filter>
+<filter id="gl"><feGaussianBlur stdDeviation="6"/></filter>
+</defs>
+<rect width="1200" height="420" fill="#060a12"/>
+<rect width="1200" height="420" fill="url(#g1)"><animate attributeName="opacity" values="0.7;1;0.7" dur="11s" repeatCount="indefinite"/></rect>
+<rect width="1200" height="420" fill="url(#g2)"><animate attributeName="opacity" values="1;0.65;1" dur="14s" repeatCount="indefinite"/></rect>
+<g><circle cx="302" cy="130" r="2.1" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="2.40s" begin="-4.3s" repeatCount="indefinite"/></circle><circle cx="802" cy="17" r="1.9" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.30s" begin="0.0s" repeatCount="indefinite"/></circle><circle cx="120" cy="84" r="0.7" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="4.40s" begin="-0.6s" repeatCount="indefinite"/></circle><circle cx="1038" cy="174" r="0.7" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.30s" begin="-4.5s" repeatCount="indefinite"/></circle><circle cx="958" cy="153" r="1.6" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.70s" begin="-4.6s" repeatCount="indefinite"/></circle><circle cx="382" cy="204" r="1.9" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="2.50s" begin="-0.5s" repeatCount="indefinite"/></circle><circle cx="50" cy="7" r="1.8" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.70s" begin="-3.4s" repeatCount="indefinite"/></circle><circle cx="261" cy="60" r="2.1" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.90s" begin="0.0s" repeatCount="indefinite"/></circle><circle cx="3" cy="216" r="1.4" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="2.90s" begin="-2.4s" repeatCount="indefinite"/></circle><circle cx="1014" cy="273" r="0.7" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.00s" begin="-1.5s" repeatCount="indefinite"/></circle><circle cx="523" cy="217" r="2.1" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="2.60s" begin="-3.7s" repeatCount="indefinite"/></circle><circle cx="489" cy="260" r="1.3" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.90s" begin="-1.6s" repeatCount="indefinite"/></circle><circle cx="971" cy="134" r="1.2" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="4.10s" begin="-3.4s" repeatCount="indefinite"/></circle><circle cx="1118" cy="269" r="0.7" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="2.80s" begin="0.0s" repeatCount="indefinite"/></circle><circle cx="821" cy="27" r="0.9" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.30s" begin="-1.4s" repeatCount="indefinite"/></circle><circle cx="1199" cy="82" r="0.7" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="4.70s" begin="-1.0s" repeatCount="indefinite"/></circle><circle cx="63" cy="208" r="1.2" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="3.00s" begin="-2.3s" repeatCount="indefinite"/></circle><circle cx="744" cy="118" r="1.4" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="4.10s" begin="-4.5s" repeatCount="indefinite"/></circle><circle cx="474" cy="136" r="1.8" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="2.90s" begin="-1.3s" repeatCount="indefinite"/></circle><circle cx="1166" cy="76" r="0.9" fill="#dbe7ff"><animate attributeName="opacity" values="0.06;0.8;0.06" dur="4.50s" begin="-4.1s" repeatCount="indefinite"/></circle></g>
+<g transform="translate(600,215)">
+<ellipse rx="180" ry="72" fill="none" stroke="#22d3ee" stroke-opacity="0.35" stroke-width="1.2" stroke-dasharray="5 9"><animateTransform attributeName="transform" type="rotate" values="0;360" dur="24s" repeatCount="indefinite"/></ellipse>
+<ellipse rx="272" ry="108" fill="none" stroke="#a78bfa" stroke-opacity="0.28" stroke-width="1.1" stroke-dasharray="4 12"><animateTransform attributeName="transform" type="rotate" values="360;0" dur="36s" repeatCount="indefinite"/></ellipse>
+<ellipse rx="352" ry="140" fill="none" stroke="#22d3ee" stroke-opacity="0.16" stroke-width="1" stroke-dasharray="2 14"><animateTransform attributeName="transform" type="rotate" values="0;360" dur="52s" repeatCount="indefinite"/></ellipse>
+<g><circle cx="180" cy="0" r="4.5" fill="#22d3ee" filter="url(#gl)"><animateTransform attributeName="transform" type="rotate" values="0;360" dur="24s" repeatCount="indefinite"/></circle>
+<circle cx="-140" cy="0" r="3" fill="#a78bfa" filter="url(#gl)"><animateTransform attributeName="transform" type="rotate" values="180;540" dur="24s" repeatCount="indefinite"/></circle></g>
+<g><circle cx="272" cy="0" r="3.4" fill="#a78bfa"><animateTransform attributeName="transform" type="rotate" values="60;420" dur="36s" repeatCount="indefinite"/></circle>
+<circle cx="-250" cy="0" r="2.6" fill="#22d3ee" opacity="0.8"><animateTransform attributeName="transform" type="rotate" values="240;600" dur="36s" repeatCount="indefinite"/></circle></g>
+<circle r="86" fill="url(#core)"><animate attributeName="r" values="76;100;76" dur="6.5s" repeatCount="indefinite"/></circle>
+<circle r="10" fill="#22d3ee" filter="url(#gl)"><animate attributeName="opacity" values="0.65;1;0.65" dur="3s" repeatCount="indefinite"/></circle>
+<g stroke="#22d3ee" stroke-opacity="0.55" stroke-width="1.4" stroke-linecap="round">
+<line x1="-20" y1="0" x2="20" y2="0"/><line x1="0" y1="-20" x2="0" y2="20"/>
+<animateTransform attributeName="transform" type="rotate" values="0;90;180;270;360" dur="14s" repeatCount="indefinite"/></g>
+</g>
+<rect y="330" width="1200" height="90" fill="#060a12"/>
+<rect y="316" width="1200" height="104" fill="url(#fade)"/>
+</svg></div>
+<div class="hero-inner">
+  <div class="eyebrow">marcuspat</div>
+  <h1>rustops</h1>
+  <p class="tagline">Early-stage AIOps toolkit in Rust: Z-score/IQR anomaly detection, alert correlation, event-sourced incidents, Prometheus pipeline.</p>
+  <div class="chips"><span class="chip">aiops</span><span class="chip">alerting</span><span class="chip">anomaly-detection</span><span class="chip">automation</span><span class="chip">cqrs</span><span class="chip">devops</span><span class="chip">event-sourcing</span><span class="chip">incident-management</span><span class="chip">it-operations</span><span class="chip">monitoring</span></div>
+  <div class="cta"><a class="btn primary" href="https://github.com/marcuspat/rustops">View on GitHub ↗</a><a class="btn" href="https://github.com/marcuspat/rustops/releases/tag/v0.1.2">Release v0.1.2</a></div>
+  <div class="stats"><span><span class="lang-dot" style="background:#dea584"></span><b>Rust</b></span><span>⭐ <b>2</b></span><span>release <b>v0.1.2</b></span><span>pushed <b>2026-10-15</b></span></div>
+</div>
+</section>
+<main>
+<section id="about"><h2>What it does</h2><div class="cards"><div class="card"><h3>Anomaly detection built in</h3><p>Z-score and IQR anomaly detection — no ML dependency to host.</p></div><div class="card"><h3>Alert correlation</h3><p>Events correlated into incidents so the pager tells one story, not forty.</p></div><div class="card"><h3>Event-sourced incidents</h3><p>CQRS event sourcing behind the incident timeline — replayable, auditable operations.</p></div></div></section>
+
+<section id="faq"><h2>FAQ</h2><div class="faq"><details><summary>What is rustops?</summary><p>Early-stage AIOps toolkit in Rust: Z-score/IQR anomaly detection, alert correlation, event-sourced incidents, Prometheus pipeline.</p></details><details><summary>Who maintains rustops?</summary><p>marcuspat — Agentic Engineer — Platform Engineering × AI-assisted development. Source code and issues live on GitHub at github.com/marcuspat/rustops.</p></details><details><summary>How do I try rustops?</summary><p>Clone or fork the repository at github.com/marcuspat/rustops and follow the README setup instructions.</p></details></div></section>
+<section id="more"><h2>Explore</h2><div class="links">
+<a href="https://github.com/marcuspat/rustops#readme">README <span class="arr">→</span></a>
+<a href="https://github.com/marcuspat/rustops/releases">Releases <span class="arr">→</span></a>
+<a href="https://github.com/marcuspat/rustops/issues">Issues <span class="arr">→</span></a>
+<a href="https://github.com/marcuspat/rustops/blob/HEAD/LICENSE">License <span class="arr">→</span></a>
+</div></section>
+</main>
+<footer>
+<div class="orgs">
+<a href="https://github.com/marcuspat">marcuspat</a>
+<a href="https://github.com/adventurewave-labs">adventurewave-labs</a>
+<a href="https://github.com/creandotumatrix-labs">creandotumatrix-labs</a>
+</div>
+<div>© marcuspat · static page · free hosting on GitHub Pages</div>
+</footer>
+<script></script>
+</body>
+</html>
