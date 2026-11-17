@@ -6,7 +6,6 @@
 
 [![Rust](https://img.shields.io/badge/Rust-1.87+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Main Branch](https://github.com/marcuspat/rustops/actions/workflows/main.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/main.yml)
 [![RustOps Test Suite](https://github.com/marcuspat/rustops/actions/workflows/test.yml/badge.svg)](https://github.com/marcuspat/rustops/actions/workflows/test.yml)
 
 ---
