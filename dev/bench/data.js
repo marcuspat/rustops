@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794926641212,
+  "lastUpdate": 1795615929697,
   "repoUrl": "https://github.com/marcuspat/rustops",
   "entries": {
     "Benchmark": [
@@ -1151,6 +1151,150 @@ window.BENCHMARK_DATA = {
             "name": "metric_aggregation/10000",
             "value": 5997,
             "range": "± 21",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1175997+marcuspat@users.noreply.github.com",
+            "name": "Marcus Patman",
+            "username": "marcuspat"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9bc933ec21056a7788434fe5a5db7c8597c3f098",
+          "message": "Merge pull request #25 from marcuspat/fix/patch-rustsec-lockfile",
+          "timestamp": "2026-11-25T08:07:47-06:00",
+          "tree_id": "b2ba00273f4e8cd16a847d2e93292cecb909450e",
+          "url": "https://github.com/marcuspat/rustops/commit/9bc933ec21056a7788434fe5a5db7c8597c3f098"
+        },
+        "date": 1795615929324,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "event_creation_simple",
+            "value": 182,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_creation_with_correlation",
+            "value": 191,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_serialize_json",
+            "value": 640,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_deserialize_json",
+            "value": 632,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_batch/10",
+            "value": 5431,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_batch/100",
+            "value": 53493,
+            "range": "± 259",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "event_batch/1000",
+            "value": 551224,
+            "range": "± 10444",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_creation/constructor_with_labels",
+            "value": 226,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_creation/constructor_empty_labels",
+            "value": 142,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_serialize_json",
+            "value": 536,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_deserialize_json",
+            "value": 741,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/1",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/5",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/10",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/20",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_labels/50",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_aggregation/10",
+            "value": 2,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_aggregation/100",
+            "value": 46,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_aggregation/1000",
+            "value": 771,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "metric_aggregation/10000",
+            "value": 8215,
+            "range": "± 55",
             "unit": "ns/iter"
           }
         ]
