@@ -70,7 +70,7 @@ petgraph = "0.6"
 prometheus = { version = "0.14", features = ["process"] }
 
 # Kubernetes
-kube = { version = "4.2", default-features = false, features = ["client"] }
+kube = { version = "4.2.1", default-features = false, features = ["client"] }
 k8s-openapi = { version = "0.28", features = ["latest"] }
 
 # Graph database (Neo4j)
